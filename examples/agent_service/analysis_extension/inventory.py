@@ -77,7 +77,7 @@ def inventory(store, owner, offset, limit, member_dimension=None, search=None, d
         if detail == "full": return {"items": selected, "contexts": {}}
         contexts, compact = {}, []
         context_keys = ('context', 'querySessionId', 'taskName', 'formName', 'executionId', 'observationId',
-                        'bindingRef', 'effectiveDimensions', 'dimensionModels', 'sourceGroup', 'capturedAt')
+                        'bindingRef', 'executionPeriod', 'periodResolution', 'effectiveDimensions', 'dimensionModels', 'sourceGroup', 'capturedAt')
         for row in selected:
             context = {key: row.get(key) for key in context_keys}
             context_ref = 'context_' + digest(context)[:24]

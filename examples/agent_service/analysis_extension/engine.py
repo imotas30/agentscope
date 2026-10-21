@@ -64,7 +64,7 @@ def _numeric(items, allow_display=False):
     if any(x.get("valueState") != "PRESENT" or x.get("calculationValidation", "PASS") != "PASS" for x in items):
         raise AnalysisError("INCOMPLETE_VALUES", "计算包含缺值、失败、冲突或尚未查询的项。")
     if not allow_display and any(x.get("precision") == "display_only" for x in items):
-        raise AnalysisError("PRECISION_UNPROVEN", "显示精度不能直接作为精确财务计算输入。")
+        raise AnalysisError("PRECISION_UNPROVEN", "显示精度不能直接作为精确计算输入。")
     return [decimal_value(x["value"]) for x in items]
 
 
@@ -121,9 +121,11 @@ def calculate(facts: list[dict], scope: dict, operations: list[dict], registry: 
                 trace = trace_formula(facts, items[0]["factId"])
                 result["formulaTrace"] = trace
                 result["sourceFactIds"] = trace["sourceFactIds"]
-                if trace["status"] in ("BLOCKED", "NO_FORMULA"):
-                    raise AnalysisError("FORMULA_INCOMPLETE", "表内公式核对未完成，请读取公式依赖与具体断点。")
-                result.update(value=trace["value"], unit=items[0].get("unit"), meaning=trace["meaning"], sourceConsistency=trace["sourceConsistency"])
+                result["applicability"] = trace["applicabilityStatus"]
+                result["sourceConsistency"] = trace["sourceConsistency"]
+                if trace["status"] == "BLOCKED":
+                    raise AnalysisError("FORMULA_INCOMPLETE", "表内公式核对受阻，请按具体断点处理。", trace["recovery"])
+                result.update(value=trace["value"], unit=items[0].get("unit"), meaning=trace["meaning"])
             elif operator == "ARITHMETIC":
                 from numeric_tools import calculate as arithmetic
                 _numeric(items)

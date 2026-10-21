@@ -45,6 +45,7 @@ from ..message_bus import MessageBusKeys
 from .._bus_ops import enqueue_run_trigger, publish_session_event
 
 if TYPE_CHECKING:
+    from ..auth import AuthService
     from ..message_bus import MessageBus
     from ..storage import StorageBase
     from .._service import ChatService
@@ -87,6 +88,7 @@ class WakeupDispatcher:
         storage: "StorageBase",
         chat_service: "ChatService",
         chat_run_registry: "ChatRunRegistry",
+        auth_service: "AuthService | None" = None,
     ) -> None:
         """Bind dependencies.
 
@@ -104,6 +106,7 @@ class WakeupDispatcher:
         self._storage = storage
         self._chat_service = chat_service
         self._registry = chat_run_registry
+        self._auth_service = auth_service
         self._task: asyncio.Task | None = None
         # Detached backoff timers for deferred ``resume`` re-enqueues.
         # Held so they are not garbage-collected mid-sleep and can be
@@ -231,6 +234,8 @@ class WakeupDispatcher:
                 Serialised input event for ``resume`` triggers, else
                 ``None``.
         """
+        if self._auth_service is not None and not await self._auth_service.is_active(user_id):
+            return
         is_resume = kind == MessageBusKeys.WAKEUP_KIND_RESUME
         is_message = kind == MessageBusKeys.WAKEUP_KIND_MESSAGE
         # ``resume`` and ``message`` both carry input that must be
@@ -338,6 +343,7 @@ class WakeupDispatcher:
                 ),
                 session_id=session_id,
                 name=f"{kind}-run:{session_id}",
+                user_id=user_id,
             )
         except RuntimeError:
             # A local run was registered between the running-check and

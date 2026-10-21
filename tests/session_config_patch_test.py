@@ -47,9 +47,8 @@ class SessionConfigPatchTest(IsolatedAsyncioTestCase):
         workdir = self.enterContext(tempfile.TemporaryDirectory())
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
 
-        # Record every ``state`` argument storage receives, so a test can
-        # assert on what the handler chose to write rather than on what
-        # survived the round trip.
+        # Observe the atomic mutation of the latest record, including whether
+        # its state changed. Configuration updates must preserve run state.
         recorded_states: list[Any] = []
 
         class _Storage(RedisStorage):
@@ -63,6 +62,16 @@ class SessionConfigPatchTest(IsolatedAsyncioTestCase):
             async def upsert_session(self, *args: Any, **kwargs: Any) -> Any:
                 recorded_states.append(kwargs.get("state"))
                 return await super().upsert_session(*args, **kwargs)
+
+            async def mutate_session(self, user_id, agent_id, session_id, mutate):
+                def observe(latest):
+                    before = latest.state.model_copy(deep=True)
+                    mutate(latest)
+                    recorded_states.append(
+                        latest.state.model_copy(deep=True)
+                        if latest.state != before else None
+                    )
+                return await super().mutate_session(user_id, agent_id, session_id, observe)
 
         class _Bus(RedisMessageBus):
             async def __aenter__(self) -> Any:

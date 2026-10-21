@@ -24,7 +24,7 @@ def array(items, maximum, minimum=0):
     return {"type": "array", "items": items, "minItems": minimum, "maxItems": maximum}
 
 
-SELECTOR = obj({"captureRef": TEXT, "stepId": TEXT, "bindingRef": TEXT, "cellKeys": array(TEXT, 1000, 1)}, ["captureRef", "stepId", "cellKeys"])
+SELECTOR = obj({"captureRef": TEXT, "stepId": TEXT, "bindingRef": TEXT, "executionPeriod": TEXT, "observationId": TEXT, "cellKeys": array(TEXT, 1000, 1)}, ["captureRef", "stepId", "cellKeys"])
 SCOPE = obj({"label": TEXT, "members": {**array(TEXT, 1000, 1), "description": "使用 inventory 的 memberRef 或来源唯一的 objectId/key，不能填名称。跨来源同名 ID 必须用 memberRef；构建后以返回的 objectId 选择成员，MCP 请求仍用 sourceObjectId/原始维度。"}, "memberDimension": TEXT,
              "contextMode": {"enum": ["SINGLE_SNAPSHOT", "COMPOSITE"], "description": "预算默认同连接、sourceId/snapshotId/asOf/schemaHash 等数据边界，可包含重开后的不同 contextId/querySessionId；真实边界不同用 COMPOSITE，保留各查询上下文，不自动证明可比。"},
              "referenceMembers": {**array(TEXT, 1000), "description": "额外比较或背景对象；与主体 members 不重叠，不计入 population。计算用 inputRefs 或 select.objectId 显式选取。"},
@@ -106,6 +106,15 @@ class _AnalysisTool(ToolBase):
             return ToolChunk(content=[TextBlock(text=json.dumps({"schemaVersion": 1, "error": exc.as_dict()}, ensure_ascii=False))], state=ToolResultState.ERROR)
 
 
+class AnalysisTask(_AnalysisTool):
+    name = 'AnalysisTask'
+    method = 'task'
+    is_concurrency_safe = False
+    description = '每个真实用户轮先登记本轮任务。DIRECT：普通查询/筛选/排序/简单统计/一般答复或必要澄清，不构建分析；ANALYSIS：用户明确要求分析，按问题选择方法并完成真实 workPlan 与来源核验；REPORT：用户明确要求报告，报告使用自由 HTML。不能根据负值、业务名称或工具存在推定分析。status 返回宿主实际完成检查；blocked 仅用于真实外部障碍，引用本轮失败调用 ID 并说明未完成范围。声明不证明完成，同轮不能降级绕过检查。'
+    input_schema = obj({'action': {'enum': ['declare', 'status', 'blocked']}, 'mode': {'enum': ['DIRECT', 'ANALYSIS', 'REPORT']},
+                        'goal': TEXT, 'reason': TEXT, 'failedToolCallIds': array(TEXT, 20, 1)}, ['action'])
+
+
 class QueryResultRead(_AnalysisTool):
     name = 'QueryResultRead'
     method = 'read_query_result'
@@ -154,7 +163,7 @@ VIEW['properties']['showChecks']['description'] += ' WATERFALL 始终按直接�
 PRESENTATION['properties']['labels']['description'] = '模型声明业务简称。measure 复用于同源同口径同指标的全部事实，object 复用于同一对象；不改来源名称。公式用简洁指标名，避免序号、填列说明和重复年份。重建/综合时从已有结果 summary.presentation.labels 取回仍适用的简称，核对当前事实引用并完整提交；仅补新增简称不会自动继承旧映射。'
 WORK_ITEM['properties']['refs']['description'] = 'VALUES 填 factId；COMPUTATION 填实际 derivedId（含 derived_ 前缀）；RELATION 填 relationRef，不填 RECONCILE 派生引用。暂时没有引用填 []，发布前用 workRefs 补齐。'
 WORK_ITEM['properties']['kind']['description'] = 'RELATION 只枚举关系成员；数值汇总核对另外声明 COMPUTATION，operator=RECONCILE；不能以枚举完成代替数值核对完成。'
-OPERATION['properties']['operator']['description'] = '按来源数值排序选择 SORT（含无单位原值及负数）；RANK 另外要求可比单位、缩放和口径。FORMULA_CHECK 每项仅处理一个目标；批量目标分别运算。'
+OPERATION['properties']['operator']['description'] = '按来源数值排序选择 SORT（含无单位原值及负数）；RANK 另外要求可比单位、缩放和口径。FORMULA_CHECK 每项仅处理一个目标；批量目标分别运算。NO_CAPTURED_FORMULA 表示当前捕获未提供可复算公式，检查完成但不产生数值、不证明来源一致；BLOCKED 按 nextRead 和具体断点继续处理。分析方法与汇总预期由任务选择，算子不自动安排业务流程。'
 SCOPE['properties']['population']['description'] = '主体 members 的完整枚举来源，必须恰好对应 members。额外比较对象用 referenceMembers；不要为加入比较值删除本字段。'
 
 

@@ -111,10 +111,13 @@ class ReplyEndReason(StrEnum):
 class ReplyEndEvent(EventBase):
     """Reply end event.
 
+    Metadata is merged into the reply message by key, with each supplied
+    value replacing the previous value. Persistence and SSE consumers must
+    preserve these detached values, including metadata from middleware.
+
     ``metadata.presentation.answer_block_ids`` optionally identifies the
     final text/data blocks by their streamed IDs. An empty list denotes a
     process-only reply; absent metadata leaves presentation unspecified.
-    Message persistence and SSE consumers must preserve this selection.
     """
 
     type: Literal[EventType.REPLY_END] = EventType.REPLY_END

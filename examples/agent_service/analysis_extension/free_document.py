@@ -140,7 +140,7 @@ def compile_document(artifact, document):
         fail('DOCUMENT_TOO_LARGE', '页面源文件超过 512 KiB。', '/document/html')
     if not isinstance(bindings, list) or len(bindings) > 2000:
         fail('INVALID_DOCUMENT', 'bindings 最多 2000 个真实数值引用。', '/document/bindings')
-    from .document_data import compile_datasets
+    from .document_data import compile_datasets, fact_context
     datasets, dataset_refs = compile_datasets(artifact, document.get('datasets', []))
     if not bindings and not datasets:
         fail('INVALID_DOCUMENT', 'bindings 与 datasets 至少提供一个真实引用。')
@@ -165,10 +165,18 @@ def compile_document(artifact, document):
             formatted = '' if raw is None else (raw if binding.get('field') == 'unit' else number_text(raw, binding.get('format'), grouping=True))
         except AnalysisError as exc:
             raise AnalysisError(exc.code, str(exc), {**(exc.details or {}), 'path': path}) from exc
+        subject = item
+        if 'formulaTrace' in item:
+            target = binding.get('nodeRef') or item['formulaTrace']['targetFactRef']
+            subject = known[target]
         payload[key] = {'value': raw, 'display': formatted, 'unit': item.get('unit') or '',
-                        'objectLabel': item.get('objectLabel', ''), 'measure': ' / '.join(item.get('headers', [])),
+                        'objectLabel': subject.get('objectLabel', ''), 'measure': ' / '.join(subject.get('headers', [])),
                         'valueState': item.get('valueState'), 'valueRef': ref,
-                        'field': binding.get('field', 'value'), 'nodeRef': binding.get('nodeRef')}
+                        'field': binding.get('field', 'value'), 'nodeRef': binding.get('nodeRef'),
+                        'context': fact_context(subject) if 'factId' in subject else None,
+                        'basis': {'kind': 'SOURCE' if 'factId' in item else 'CALCULATED',
+                                  'operator': item.get('operator'), 'field': binding.get('field', 'value'),
+                                  'targetFactRef': subject.get('factId')}}
         refs.add(ref)
     used = set(SLOT.findall(source))
     partial = artifact.get('partialReason')

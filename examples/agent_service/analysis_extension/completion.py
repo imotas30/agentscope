@@ -131,6 +131,9 @@ def completion_summary(artifact):
                 ready = value.get('calculationValidation') == 'PASS' and operator_matches
                 detail = {'executionStatus': value['executionStatus'], 'sourceConsistency': value.get('sourceConsistency', 'NOT_CHECKED'),
                           'diagnostics': value.get('diagnostics', [])}
+                if 'applicability' in value:
+                    detail['applicability'] = value['applicability']
+                    detail['valueState'] = value['valueState']
                 if task.get('operator'):
                     detail['operatorMatches'] = operator_matches
                 if ready:

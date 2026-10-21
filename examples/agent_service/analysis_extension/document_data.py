@@ -60,8 +60,14 @@ def amount(raw, fmt):
     return {'value': raw, 'display': '' if raw is None else number_text(raw, fmt, grouping=True)}
 
 
+def fact_context(fact):
+    """Frozen identity and periods, without selecting a business label or layout."""
+    return {key: deepcopy(fact.get(key)) for key in (
+        'objectId', 'period', 'executionPeriod', 'bindingRef', 'measureCode', 'sourceContextId')}
+
+
 def fact_record(fact, fmt):
-    return {'factRef': fact['factId'], 'objectId': fact['objectId'], 'objectLabel': fact.get('objectLabel', ''),
+    return {**fact_context(fact), 'factRef': fact['factId'], 'objectLabel': fact.get('objectLabel', ''),
             'headers': deepcopy(fact.get('headers', [])), 'unit': fact.get('unit') or '',
             'valueState': fact['valueState'], **amount(fact['value'] if fact['valueState'] == 'PRESENT' else None, fmt)}
 

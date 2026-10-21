@@ -32,6 +32,7 @@ class ChatRunRegistry:
     def __init__(self) -> None:
         """Initialise an empty registry."""
         self._tasks: dict[str, asyncio.Task] = {}
+        self.owners: dict[str, str] = {}
 
     def spawn(
         self,
@@ -39,6 +40,7 @@ class ChatRunRegistry:
         *,
         session_id: str,
         name: str | None = None,
+        user_id: str | None = None,
     ) -> asyncio.Task:
         """Create and register an asyncio task that runs ``coro``.
 
@@ -82,12 +84,15 @@ class ChatRunRegistry:
             name=name or f"chat-run:{session_id}",
         )
         self._tasks[session_id] = task
+        if user_id is not None:
+            self.owners[session_id] = user_id
 
         def _cleanup(t: asyncio.Task) -> None:
             # Only remove the entry if it still points at this task —
             # a fresh spawn for the same sid may have replaced it.
             if self._tasks.get(session_id) is t:
                 self._tasks.pop(session_id, None)
+                self.owners.pop(session_id, None)
 
         task.add_done_callback(_cleanup)
         return task

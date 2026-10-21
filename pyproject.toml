@@ -63,6 +63,7 @@ models = [
 classifiers = ["agentscope[classifier-jev]"]
 # ------------ Service ------------
 service = [
+    "argon2-cffi>=23.1",
     "fastapi",
     "uvicorn",
     "apscheduler",

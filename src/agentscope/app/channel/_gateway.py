@@ -17,6 +17,7 @@ the reply back — so scheduled / background runs reach the channel too,
 not just inbound messages.
 """
 import json
+from typing import TYPE_CHECKING
 
 from ..._logging import logger
 from ...message import DataBlock, HintBlock, TextBlock, UserMsg
@@ -37,6 +38,9 @@ from ._base import ChannelEvent, ChannelConfirmationResultEvent
 from ._decision import resume_after_decision
 from ._routing import resolve
 
+if TYPE_CHECKING:
+    from ..auth import AuthService
+
 # How long a media-only message waits for its accompanying text message.
 _MEDIA_BUFFER_TTL_SECS = 300
 # Max buffered attachments carried into one text message.
@@ -51,6 +55,7 @@ class ChannelGateway:
         storage: StorageBase,
         message_bus: MessageBus,
         workspace_manager: WorkspaceManagerBase,
+        auth_service: "AuthService | None" = None,
     ) -> None:
         """Bind storage, the message bus, and the workspace manager.
 
@@ -59,10 +64,13 @@ class ChannelGateway:
             message_bus (`MessageBus`): Application message bus.
             workspace_manager (`WorkspaceManagerBase`): Assigns each
                 derived session its workspace under the isolation policy.
+            auth_service (`AuthService | None`): Reject events belonging to
+                disabled or deleted accounts when authentication is enabled.
         """
         self._storage = storage
         self._bus = message_bus
         self._workspace_manager = workspace_manager
+        self._auth_service = auth_service
 
     async def process(
         self,
@@ -75,6 +83,12 @@ class ChannelGateway:
                 inbound message or card-click decision.
         """
         try:
+            if self._auth_service is not None:
+                record = await self._storage.get_channel(event.channel_id)
+                if record is None or not await self._auth_service.is_active(
+                    record.user_id,
+                ):
+                    return
             if isinstance(event, ChannelConfirmationResultEvent):
                 await self._handle_decision(event)
             else:

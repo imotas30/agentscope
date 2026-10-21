@@ -37,10 +37,11 @@ from ..rag import ChunkerBase, ParserBase
 async def get_current_user_id(
     x_user_id: str = Header(
         description="Caller's user ID. "
-        "Temporary header-based identity; will be replaced by JWT auth.",
+        "Identity supplied by the authentication boundary when enabled.",
     ),
+    request: Request = None,
 ) -> str:
-    """Return the caller's user ID from the ``X-User-ID`` request header.
+    """Return the authenticated ID, or the embedder's identity header.
 
     Args:
         x_user_id (`str`): Value of the ``X-User-ID`` header.
@@ -51,6 +52,11 @@ async def get_current_user_id(
     Raises:
         `HTTPException`: 401 if the header is missing or empty.
     """
+    if (
+        request is not None
+        and getattr(request.state, "auth_user", None) is not None
+    ):
+        return request.state.auth_user["id"]
     if not x_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

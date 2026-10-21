@@ -1030,6 +1030,12 @@ class ChatService:
                         await self._extra_agent_middlewares(*factory_args),
                     )
 
+                from ._agent_memory import configure_memory
+                middlewares = await configure_memory(
+                    middlewares, agent_record.data.memory_config, workspace,
+                    user_id, self._access,
+                )
+
                 # -------------------------------------------------------------
                 # 2b. TTS middleware — inject when the session has a TTS
                 # config.

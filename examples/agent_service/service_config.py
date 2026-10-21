@@ -6,12 +6,17 @@ import os
 from pathlib import Path
 
 
-def redis_settings(path: str | Path, environ=None) -> dict:
-    env = os.environ if environ is None else environ
+def read_settings(path: str | Path) -> dict:
     path = Path(path)
     document = json.loads(path.read_text("utf-8")) if path.exists() else {}
-    if not isinstance(document, dict) or set(document) - {"redis"}:
-        raise ValueError("Service configuration must contain only a redis object.")
+    if not isinstance(document, dict) or set(document) - {"redis", "auth"}:
+        raise ValueError("Service configuration supports redis and auth objects.")
+    return document
+
+
+def redis_settings(path: str | Path, environ=None) -> dict:
+    env = os.environ if environ is None else environ
+    document = read_settings(path)
     configured = document.get("redis", {})
     defaults = {"host": "localhost", "port": 6379, "db": 0, "password": None}
     if not isinstance(configured, dict) or set(configured) - defaults.keys():
@@ -34,3 +39,25 @@ def redis_settings(path: str | Path, environ=None) -> dict:
         raise ValueError("Redis password must be a string or null.")
     values["password"] = values["password"] or None
     return values
+
+
+def auth_settings(path: str | Path, environ=None):
+    """Load required administrator credentials without echoing invalid secrets."""
+    from agentscope.app.auth import AuthSettings
+    env = os.environ if environ is None else environ
+    configured = read_settings(path).get("auth", {})
+    if not isinstance(configured, dict):
+        raise ValueError("Auth configuration must be an object.")
+    values = dict(configured)
+    for field, name in (("admin_password", "AGENTSCOPE_ADMIN_PASSWORD"),
+                        ("session_ttl_seconds", "AGENTSCOPE_SESSION_TTL_SECONDS"),
+                        ("cookie_secure", "AGENTSCOPE_COOKIE_SECURE")):
+        if name in env:
+            values[field] = env[name]
+    try:
+        settings = AuthSettings.model_validate(values)
+        settings.validate_password()
+    except ValueError:
+        raise ValueError("Invalid auth configuration. Set admin_password (8–128 characters), "
+                         "session_ttl_seconds (60–604800), cookie_secure, and optional allowed_origins.") from None
+    return settings

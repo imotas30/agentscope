@@ -29,7 +29,7 @@ class ReportSkillTests(IsolatedAsyncioTestCase):
                                                 OWNER.session_id, self.workspace, self.config)
 
     async def test_skill_capability_matrix(self):
-        shared = {'QueryResultRead', 'AnalysisBuild', 'AnalysisInspect', 'AnalysisPublish'}
+        shared = {'AnalysisTask', 'QueryResultRead', 'AnalysisBuild', 'AnalysisInspect', 'AnalysisPublish'}
         all_tools = shared | {'AnalysisFollowUp', 'AnalysisRenderReport'}
         cases = [(names, all_tools) for names in ((), ('budget-ontology-mcp-v2',), ('data-analysis',),
                                                  ('report-generation',), ('renamed-method', 'renamed-report'))]

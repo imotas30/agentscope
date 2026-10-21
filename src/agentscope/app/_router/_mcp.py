@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
 from ..deps import (
-    get_current_user_id,
     get_mcp_hubs,
     get_storage,
     get_resource_service,
@@ -30,6 +29,7 @@ from .._service._mcp_edit import (
 from ...mcp import MCPClient
 from ._schema import MCPView, UpdateMCPRequest
 from ._schema._hub_mcp import CreateMCPRequest, MCPDetail
+from ._agent_management import get_managed_resource_owner
 
 mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -37,7 +37,7 @@ mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 @mcp_router.post("", status_code=status.HTTP_201_CREATED)
 async def create_mcp(
     body: CreateMCPRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
 ) -> MCPView:
     """Save a manually configured MCP without selecting any workspace."""
@@ -61,7 +61,7 @@ async def create_mcp(
 @mcp_router.get("/{mcp_id}")
 async def get_mcp(
     mcp_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> MCPDetail:
@@ -77,7 +77,7 @@ async def get_mcp(
 
 @mcp_router.get("")
 async def list_mcps(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> list[MCPView]:
@@ -93,7 +93,7 @@ async def list_mcps(
 async def update_mcp(
     mcp_id: str,
     body: UpdateMCPRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> MCPView:
@@ -210,7 +210,7 @@ async def update_mcp(
 @mcp_router.post("/{mcp_id}/upgrade")
 async def upgrade_mcp(
     mcp_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     hubs: dict[str, MCPHubBase] = Depends(get_mcp_hubs),
     resources: ResourceService = Depends(get_resource_service),
@@ -246,7 +246,7 @@ async def upgrade_mcp(
 @mcp_router.delete("/{mcp_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mcp(
     mcp_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> None:

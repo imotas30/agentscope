@@ -167,7 +167,9 @@ def create_analysis_router(config_path):
     async def report(request: Request, agent_id: str, session_id: str, analysis_ref: str, export_ref: str,
                      download: bool = False, token: str | None = None, x_user_id: str | None = Header(None)):
         try:
-            if token:
+            if getattr(request.state, "auth_user", None) is not None:
+                user_id = request.state.auth_user["id"]
+            elif token:
                 try:
                     user_id = request.app.state.workspace_service.verify_download_token(token, token_resource(agent_id, session_id, analysis_ref, export_ref))
                 except ValueError as exc:

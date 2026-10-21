@@ -4,10 +4,9 @@ import os
 import sys
 
 import uvicorn
-from fastapi.middleware import Middleware
-from fastapi.middleware.cors import CORSMiddleware
 
 from agentscope.app import create_app, SubAgentTemplate
+from agentscope.app.auth import AuthService, RedisAuthStore
 from agentscope.app.channel import (
     DingTalkChannel,
     DiscordChannel,
@@ -24,10 +23,13 @@ from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.rag import ApproxTokenChunker, QdrantStore
 from agentscope.workspace import WorkspaceBase
 
-from service_config import redis_settings
+from service_config import auth_settings, redis_settings
 
 service_dir = os.path.dirname(os.path.abspath(__file__))
-storage = RedisStorage(**redis_settings(os.path.join(service_dir, "service-config.local.json")))
+config_path = os.path.join(service_dir, "service-config.local.json")
+redis_config = redis_settings(config_path)
+auth = AuthService(RedisAuthStore(**redis_config), auth_settings(config_path))
+storage = RedisStorage(**redis_config)
 
 vector_store = QdrantStore(location=":memory:")
 
@@ -57,6 +59,7 @@ async def longterm_memory_factory(
 
 
 app = create_app(
+    auth_service=auth,
     storage=storage,
     message_bus=InMemoryMessageBus(),
     # -- To use a Redis-backed message bus instead (recommended for
@@ -137,14 +140,6 @@ so anything you want them to see MUST be sent through `TeamSay`.""",
     # Long-term memory. The default PER_AGENT workspace isolation makes
     # the memory survive across sessions of the same agent.
     extra_agent_middlewares=longterm_memory_factory,
-    extra_middlewares=[
-        Middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_methods=["*"],
-            allow_headers=["*"],
-        ),
-    ],
     channels=[
         DingTalkChannel,
         DiscordChannel,

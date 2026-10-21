@@ -10,6 +10,7 @@ from pydantic.json_schema import SkipJsonSchema
 from ...._utils._common import _generate_id
 from ._base import _RecordBase
 from ._resource_config import AgentResourceConfig
+from ._agent_settings import AgentDefaults, AgentMemoryConfig
 from ....agent import ContextConfig, ReActConfig
 
 
@@ -134,6 +135,14 @@ class AgentData(BaseModel):
         description="Default MCP and Skill bindings for all conversations.",
         title="Resources",
     )
+
+    description: str = Field(default="", max_length=2000, title="Description")
+    defaults: AgentDefaults | None = None
+    memory_config: AgentMemoryConfig | None = None
+    # None preserves legacy behavior. These internal fields are never accepted
+    # from a form and keep a copied agent's workspace stable before first chat.
+    workspace_id: SkipJsonSchema[str | None] = None
+    copy_fingerprint: SkipJsonSchema[str | None] = None
 
     @property
     def context_config(self) -> ContextConfig:

@@ -85,6 +85,11 @@ def step_reads(receipt):
         entry = {'pointer': pointer, 'readOptions': read_options(step, pointer)}
         if isinstance(step.get('stepId'), str) and len(step['stepId']) <= 200:
             entry['stepId'] = step['stepId']
+        if isinstance(step.get('periodExecution'), dict):
+            progress = step['periodExecution']
+            entry['periodExecution'] = {key: progress.get(key) for key in
+                                       ('executionPeriod', 'periodIndex', 'periodCount', 'workIndex', 'workCount', 'periodFinished', 'planFinished')}
+            entry['periodResolutionReadAt'] = child_pointer(pointer, 'periodExecution')
         if len(encode(result + [entry])) > 6000:
             break
         result.append(entry)

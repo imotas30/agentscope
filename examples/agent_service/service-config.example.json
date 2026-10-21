@@ -4,5 +4,11 @@
     "port": 6379,
     "db": 0,
     "password": null
+  },
+  "auth": {
+    "admin_password": "CHANGE_ME",
+    "session_ttl_seconds": 43200,
+    "cookie_secure": false,
+    "allowed_origins": []
   }
 }

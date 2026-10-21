@@ -202,6 +202,7 @@ class SourceRegistry:
                 "scope": {**scope, "scopeId": "scope_" + digest(scope)[:24], "coverage": coverage,
                           "excludedMembers": scope.get("excludedMembers", []),
                           "populationComplete": population_complete, "selectedDataComplete": selected_complete,
+                          "periodCoverage": [p for result in results for p in result['scope'].get('periodCoverage', [])],
                           "sourcePagesComplete": complete, "observedMembers": sorted(members & observed),
                           "pendingMembers": sorted(members - observed), "observedReferenceMembers": sorted(reference & observed),
                           "pendingReferenceMembers": sorted(reference - observed), "semanticCompleteness": "UNVERIFIED"}}

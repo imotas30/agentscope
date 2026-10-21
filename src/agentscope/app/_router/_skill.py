@@ -19,7 +19,6 @@ from fastapi import (
 from typing import AsyncIterator, Literal
 
 from ..deps import (
-    get_current_user_id,
     get_storage,
     get_resource_service,
     get_skill_hubs,
@@ -34,6 +33,7 @@ from .._service._workspace import (
 )
 from ._schema import SkillView, SkillDetail
 from ._schema._hub_skill import SaveSkillFilesRequest, SkillFileView
+from ._agent_management import get_managed_resource_owner
 
 skill_router = APIRouter(prefix="/skill", tags=["skill"])
 
@@ -119,7 +119,7 @@ async def _archive_chunks(archive: UploadFile) -> AsyncIterator[bytes]:
 @skill_router.post("", status_code=status.HTTP_201_CREATED)
 async def create_skill(
     body: SaveSkillFilesRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -136,7 +136,7 @@ async def upload_library_skill(
     manifest: str = Form(...),
     files: list[UploadFile] = File(...),
     version: str | None = Query(default=None, min_length=1),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -150,7 +150,7 @@ async def create_skill_archive(
     archive: UploadFile = File(...),
     archive_format: Literal["zip", "tar", "tar.gz"] = Query(...),
     version: str | None = Query(default=None, min_length=1),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -167,7 +167,7 @@ async def create_skill_archive(
 @skill_router.get("/{skill_id}/files")
 async def list_skill_files(
     skill_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> list[SkillFileView]:
@@ -192,7 +192,7 @@ async def list_skill_files(
 async def read_skill_file(
     skill_id: str,
     path: str = Query(...),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> dict[str, str]:
@@ -215,7 +215,7 @@ async def read_skill_file(
 async def edit_skill_files(
     skill_id: str,
     body: SaveSkillFilesRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -238,7 +238,7 @@ async def replace_skill_folder(
     manifest: str = Form(...),
     files: list[UploadFile] = File(...),
     version: str | None = Query(default=None, min_length=1),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -250,7 +250,7 @@ async def replace_skill_folder(
 
 @skill_router.get("")
 async def list_skills(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> list[SkillView]:
@@ -265,7 +265,7 @@ async def list_skills(
 @skill_router.get("/{skill_id}")
 async def get_skill(
     skill_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillDetail:
@@ -284,7 +284,7 @@ async def get_skill(
 @skill_router.post("/{skill_id}/upgrade")
 async def upgrade_skill(
     skill_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
     hubs: dict[str, SkillHubBase] = Depends(get_skill_hubs),
@@ -327,7 +327,7 @@ async def replace_skill_package(
     archive: UploadFile = File(...),
     archive_format: Literal["zip", "tar", "tar.gz"] = Query(...),
     version: str | None = Query(default=None, min_length=1),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> SkillView:
@@ -347,7 +347,7 @@ async def replace_skill_package(
 @skill_router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_skill(
     skill_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_managed_resource_owner),
     storage: StorageBase = Depends(get_storage),
     resources: ResourceService = Depends(get_resource_service),
 ) -> None:

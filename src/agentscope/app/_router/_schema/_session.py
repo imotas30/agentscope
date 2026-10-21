@@ -121,6 +121,7 @@ class UpdateSessionRequest(BaseModel):
     """
 
     resource_config: SessionResourceConfig | None = None
+    inherit_defaults: list[str] | None = None
     name: str | None = Field(
         default=None,
         description="New display name.",

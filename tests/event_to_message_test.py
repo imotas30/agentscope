@@ -1003,6 +1003,33 @@ class EventToMessageTest(IsolatedAsyncioTestCase):
             msg="Msg must not change when event.reply_id does not match",
         )
 
+    async def test_terminal_metadata_is_detached_and_preserves_extensions(self) -> None:
+        self.msg.metadata['existing'] = 'keep'
+        event = ReplyEndEvent(session_id=_SESSION_ID, reply_id=_REPLY_ID, metadata={
+            'presentation': {'answer_block_ids': ['answer']},
+            'extensionReview': {'status': 'accepted', 'references': ['source']},
+        })
+        self.msg.append_event(event)
+        self.assertEqual(self.msg.metadata, {'existing': 'keep', **event.metadata})
+        event.metadata['extensionReview']['references'].append('later mutation')
+        event.metadata['presentation']['answer_block_ids'].clear()
+        self.assertEqual(self.msg.metadata['extensionReview']['references'], ['source'])
+        self.assertEqual(self.msg.metadata['presentation']['answer_block_ids'], ['answer'])
+
+    async def test_terminal_metadata_replaces_old_verdict_without_leaking_between_replies(self) -> None:
+        self.msg.metadata = {'existing': 'keep', 'extensionReview': {'status': 'accepted', 'oldRef': 'old'}}
+        event = ReplyEndEvent(session_id=_SESSION_ID, reply_id='other', metadata={
+            'extensionReview': {'status': 'incomplete'},
+        })
+        before = self.msg.model_dump()
+        self.msg.append_event(event)
+        self.assertEqual(self.msg.model_dump(), before)
+        event.reply_id = _REPLY_ID
+        self.msg.append_event(event)
+        self.assertEqual(self.msg.metadata, {'existing': 'keep', 'extensionReview': {'status': 'incomplete'}})
+        self.msg.append_event(event)
+        self.assertEqual(self.msg.metadata['extensionReview'], {'status': 'incomplete'})
+
     async def test_missing_block_does_not_crash(self) -> None:
         """Sending a delta for a non-existent block must log a warning only."""
         original_dump = self.msg.model_dump()

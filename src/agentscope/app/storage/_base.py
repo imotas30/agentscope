@@ -4,7 +4,7 @@
 
 from abc import ABC, abstractmethod
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from weakref import WeakValueDictionary
 from datetime import datetime, timedelta
 from typing import Any, Self
@@ -35,6 +35,27 @@ from ...state import AgentState
 
 class StorageBase(ABC):
     """The storage abstract base class."""
+
+    def bind_session_agent_resolver(
+        self,
+        resolver: Callable[[str, str], Awaitable[AgentRecord | None]] | None,
+    ) -> None:
+        """Use the host's access policy when resolving session defaults.
+
+        Standalone storage remains owner-scoped. The application binds its
+        authorized resolver so shared agents work for every session entry
+        point without widening ``get_agent`` or changing session ownership.
+        """
+        self._session_agent_resolver = resolver
+
+    async def resolve_session_agent(
+        self, user_id: str, agent_id: str
+    ) -> AgentRecord | None:
+        """Resolve an owned or explicitly shared agent for default lookup."""
+        resolver = getattr(self, "_session_agent_resolver", None)
+        if resolver is not None:
+            return await resolver(user_id, agent_id)
+        return await self.get_agent(user_id, agent_id)
 
     async def __aenter__(self) -> Self:
         """Start the storage backend (open connection pool, etc.)."""
@@ -380,7 +401,7 @@ class StorageBase(ABC):
         """
 
     @abstractmethod
-    async def list_agents(self, user_id: str) -> list[AgentRecord]:
+    async def list_agents(self, user_id: str, *, include_team: bool = False) -> list[AgentRecord]:
         """List all agents for a given user.
 
         Args:

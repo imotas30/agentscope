@@ -816,7 +816,7 @@ class RedisStorage(StorageBase):
         await self._client.sadd(index_key, agent_record.id)
         return agent_record.id
 
-    async def list_agents(self, user_id: str) -> list[AgentRecord]:
+    async def list_agents(self, user_id: str, *, include_team: bool = False) -> list[AgentRecord]:
         """Return user-facing agent records (``source='user'``).
 
         Reads the per-user agent index Set to obtain all ids, fetches
@@ -848,7 +848,7 @@ class RedisStorage(StorageBase):
             )
             if raw:
                 record = AgentRecord.model_validate_json(raw)
-                if record.source == "user":
+                if include_team or record.source == "user":
                     records.append(record)
         return records
 
@@ -1000,6 +1000,11 @@ class RedisStorage(StorageBase):
             state=state if state is not None else AgentState(),
             **new_id_kwargs,
         )
+        from ._agent_defaults import initialize_defaults
+        record = initialize_defaults(
+            record, await self.resolve_session_agent(user_id, agent_id),
+            inherit_permission=state is None,
+        )
         key = self._key(
             self.key_config.session,
             user_id=user_id,
@@ -1087,7 +1092,9 @@ class RedisStorage(StorageBase):
             if raw:
                 records.append(SessionRecord.model_validate_json(raw))
         records.sort(key=lambda r: r.created_at, reverse=True)
-        return records
+        from ._agent_defaults import resolve_defaults
+        agent = await self.resolve_session_agent(user_id, agent_id)
+        return [resolve_defaults(record, agent) for record in records]
 
     async def get_session(
         self,
@@ -1104,7 +1111,13 @@ class RedisStorage(StorageBase):
         raw = await self._client.get(key)
         if not raw:
             return None
-        return SessionRecord.model_validate_json(raw)
+        record = SessionRecord.model_validate_json(raw)
+        if agent_id and record.agent_id != agent_id:
+            return None
+        from ._agent_defaults import resolve_defaults
+        if record.config.inherited_fields:
+            return resolve_defaults(record, await self.resolve_session_agent(user_id, record.agent_id))
+        return record
 
     async def delete_session(
         self,

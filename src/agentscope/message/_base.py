@@ -247,7 +247,8 @@ class Msg(BaseModel):
     ) -> Self:
         """Update the message by applying a streaming event.
 
-        Mutates ``self.content``, ``self.finished_at``, and ``self.usage``:
+        Mutates ``self.content``, ``self.finished_at``, ``self.metadata``
+        and ``self.usage``:
         content blocks are appended/updated by block-level events,
         ``finished_at`` is stamped by ``REPLY_END``, and ``usage`` is
         initialized then accumulated across each ``MODEL_CALL_END``.
@@ -281,13 +282,11 @@ class Msg(BaseModel):
                     event.finished_reason,
                 )
                 self.error = event.error
-                # Preserve the server's final-output selection in history.
-                # The same metadata travels with REPLY_END over SSE.
-                presentation = event.metadata.get("presentation")
-                if isinstance(presentation, dict) and isinstance(
-                    presentation.get("answer_block_ids"), list,
-                ):
-                    self.metadata["presentation"] = deepcopy(presentation)
+                # Reply middleware owns terminal metadata. Preserve all of it
+                # in history just as it travels over SSE, without teaching the
+                # core message type each extension's protocol. Replace each
+                # supplied value rather than retaining fields of an old verdict.
+                self.metadata.update(deepcopy(event.metadata))
 
             case EventType.MODEL_CALL_END:
                 self.append_usage(

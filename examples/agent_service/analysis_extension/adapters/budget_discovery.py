@@ -37,6 +37,11 @@ def selected_rows(receipt, step_id=None):
 
 def rows_complete(receipt, step_id, output):
     if receipt.get('completeness', {}).get('enumerationExhausted') is not True:
+        # The period coordinator starts only after fully exhausting binding discovery.
+        # Its remaining cursor refers to form periods/pages, not to these ordinary rows.
+        if (step_id is not None and output.get('exactness') == 'EXACT' and not output.get('formResults')
+                and any(s.get('periodExecution') for s in receipt.get('data', {}).get('stepResults', []))):
+            return True
         return False
     if step_id is not None:
         return output.get('exactness') == 'EXACT'

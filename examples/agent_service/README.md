@@ -47,6 +47,10 @@ gitignored. Defaults are `localhost:6379`, database `0`, without a password.
 An empty password environment variable explicitly disables password authentication.
 Do not put connection credentials in source files or the example config.
 
+Before starting, also set `auth.admin_password` in the local configuration
+or provide `AGENTSCOPE_ADMIN_PASSWORD`. This is required; see the login and
+user management section below for the configuration format.
+
 Start the agent service:
 
 ```bash
@@ -67,7 +71,71 @@ pnpm install
 pnpm dev
 ```
 
-After that, you can set the API endpoint `http://localhost:8000` in the Web UI and start experiencing the agent service.
+The Web UI uses a fixed same-origin `/api` endpoint. Its development proxy
+forwards to `http://127.0.0.1:8000`; deployment operators can override the target
+with `AGENTSCOPE_BACKEND_URL` in the frontend `.env.local` or environment.
+Users sign in with their username and password, without entering an address.
+
+## 用户登录与管理
+
+启动前，在 `service-config.local.json` 中保留现有 `redis` 段并增加：
+
+```json
+{
+  "auth": {
+    "admin_password": "CHANGE_ME",
+    "session_ttl_seconds": 43200,
+    "cookie_secure": false,
+    "allowed_origins": []
+  }
+}
+```
+
+`admin_password` 必填，长度为 8–128 个字符。示例文件中的 `CHANGE_ME`
+不能用于启动。可通过 `AGENTSCOPE_ADMIN_PASSWORD` 覆盖密码，
+`AGENTSCOPE_SESSION_TTL_SECONDS` 覆盖会话有效期，
+`AGENTSCOPE_COOKIE_SECURE` 覆盖 Cookie 的 Secure 属性。密码不返回浏览器，
+配置文件已被 Git 忽略。所有服务进程应使用相同的配置和 Redis。
+
+使用 `admin` 登录后，从侧栏进入“用户管理”，可搜索、分页、新增、编辑、
+启用/禁用、删除用户及重置密码。普通用户从“个人账户”修改自己的密码或
+退出登录。admin 账号不能在页面中删除、禁用、重命名或重置密码；修改
+配置并重启后更新 admin 密码并撤销其旧会话，同密码重启保留会话。
+管理用户不授予读取其他用户业务资源的权限。
+
+账号数据保存在独立的 `agentscope:auth:users` Redis Hash，账户不设 TTL，
+密码使用 Argon2id 哈希；随机登录凭证通过 HttpOnly Cookie 传输，其摘要
+作为 Redis 会话键，会话到期自动删除。部署时开启 Redis 持久化并将认证
+命名空间纳入备份，不要对账户记录设置逐出或过期策略。
+
+修改密码、禁用、删除都会撤销已有登录会话。禁用/删除还阻止新的定时任务
+和渠道消息触发；每个进程约每秒检查运行任务并请求中断，长 HTTP 流约每
+两秒检查会话。软删除保留业务数据，重新创建同名账号使用新 ID。
+
+迁移旧账号时，在新增用户对话框展开“绑定历史数据”，填写原先在连接页面
+使用的用户名作为原用户 ID。由管理员确认归属后绑定，原会话、凭证和资源
+继续关联；留空则创建全新账号。已经绑定或已删除的 ID 不能再次绑定。
+
+例如旧用户名为 `wx`，管理员新增用户时将“用户名”和“原用户 ID”都填为
+`wx`，设置密码后改用 `wx` 登录，即可继续查看原智能体和相关配置。
+仅创建同名账号而不绑定原用户 ID，会分配新的空数据空间。`admin` 的用户
+管理权限不包含读取这些业务数据的权限，因此用 `admin` 登录看到空列表
+不代表旧数据已经删除。
+
+部署到 HTTPS 时设置 `cookie_secure: true`，并使浏览器和 `/api` 同域。
+反向代理需去除 `/api` 前缀、保留外部 `Host` 并正确传递协议，流式响应
+关闭代理缓冲；参考 `../web_ui/nginx.conf.example`。默认校验请求 Origin
+与请求主机一致，代理确实需要不同主机时才在 `allowed_origins` 配置完整
+可信来源（协议、域名和端口），不要填写通配符。
+
+启用认证后所有业务 HTTP 接口必须带有效会话，写请求还必须携带登录或
+`GET /auth/me` 返回的 `csrf_token`，置于 `X-CSRF-Token` 请求头中并发送
+可信 `Origin`。`X-User-ID` 被统一认证层覆盖，不能用于冒充用户。文件、
+报告和知识库下载均要求当前登录；URL 中旧下载 token 不再单独授权。
+生成的 HTML 报告与工作区文件使用 sandbox CSP，避免在应用来源执行脚本。
+
+SDK 的 `create_app()` 通过可选 `auth_service` 接入认证；本示例始终启用。
+嵌入者若未配置该参数，仍需自行提供可信身份边界。
 
 ## MCP / Skill 中心直接管理
 
@@ -195,7 +263,7 @@ Redis 使用 WATCH/MULTI，SQL 使用比较交换，原子保存最新记录上�
 | 从资源库装配 | `POST /workspace/mcp/from-library`、`POST /workspace/skill/from-library` |
 | 应用工作区 Skill 新版本 | `POST /workspace/skill/{resource_id}/upgrade?agent_id=...&session_id=...` |
 
-所有接口沿用 `X-User-ID`，记录、文件编辑和开关仅作用于当前用户。
+接口从登录会话获取用户身份，记录、文件编辑和开关仅作用于当前用户。
 同名资源新增返回 409，不会覆盖已有资源。在线编辑保留资源 ID，避免工作区
 绑定失效。管理接口不会自动读取旧工作区文件来建立记录或绑定。
 
@@ -237,6 +305,42 @@ Skill 版本固定、完整包与二进制保留、本地修改保护和独立�
 默认值。然后验证额外绑定、停用保留文件、重启、版本更新及真实 MCP/模型连接。
 
 <img src="https://gw.alicdn.com/imgextra/i2/O1CN01Phmg1G1brIVC8WXyU_!!6000000003518-2-tps-2938-1736.png" alt="Web UI Screenshot" width="100%">
+
+## 独立智能体管理
+
+前端 `/agents` 使用 `/agent-management` 接口统一管理智能体配置。权限从登录态获取：
+`admin` 可管理所有用户（含团队创建）的智能体，普通用户只能访问自己的记录。
+管理员通过 `owner_id` 指定所属用户；保存配置不会改变智能体所有者。旧用户、智能体、
+资源和会话无需迁移，仍按原用户 ID 加载。
+
+- `GET/POST /agent-management`：查询和新建；`GET/PATCH/DELETE /agent-management/{id}`：详情、保存和删除。
+- `GET /agent-management/resources`：所属用户可用的资源；现有 MCP/Skill 编辑接口使用 `resource_owner` 显式指定资源所有者，并在服务端校验管理员权限。
+- `GET /agent-management/{id}/copy-preview`、`POST /agent-management/{id}/copy`：预览和执行复制。保存、复制均检查 `revision`；复制使用 `request_id` 防止相同请求重复创建。
+- `GET /agent-management/{id}/files`：工作空间文件列表；`GET/PUT/DELETE /agent-management/{id}/memory`、`POST /agent-management/{id}/memory/clear`：长期记忆的查看、编辑、删除和清空。
+
+配置保存在 `AgentData.defaults` 和 `memory_config` 中。仅新会话自动继承模型、知识库和
+权限，历史会话保留显式值。`PATCH /sessions/{id}` 的 `inherit_defaults` 可逐项恢复继承。
+继承解析覆盖 Redis/SQL 存储入口，运行中的会话使用读取时的配置快照；显式 `null` 表示清空。
+记忆配置在聊天运行时装配，关闭记忆会移除对应中间件；未设置该字段的旧智能体保留原工厂行为。
+
+复制始终生成新的智能体、资源绑定和工作空间标识。Skill 可保留绑定的完整历史包版本；
+独立资源副本使用新名称，修改副本不会改变原资源。跨用户的 Skill/MCP/AI 配置复制到目标用户，
+AI 密钥仅在服务端转存。外部服务账号和 API 额度仍是同一账号，知识库索引不会自动克隆。
+记忆默认不复制，选择后复制 `Memory/*.md`；业务文件排除隐藏目录、已安装 Skill 和缓存。
+单文件限 20 MiB、合计限 50 MiB、最多 1000 个文件。服务拒绝越界路径、链接和正在运行的
+工作空间写入；复制失败清理本次新增资源，全部完成后才发布副本。删除智能体沿用原有会话和
+定时任务清理流程，资源库和工作空间文件保留；需要删除记忆时请先清空记忆。
+
+隔离测试：
+
+```powershell
+$env:TEMP = (Resolve-Path .test-tmp).Path
+$env:TMP = $env:TEMP
+.venv/Scripts/python.exe -m unittest tests.agent_management_test tests.agent_config_grouping_test tests.session_config_patch_test tests.user_auth_test -q
+pnpm --dir examples/web_ui/frontend build
+```
+
+测试使用 fakeredis、内存 SQLite 和临时工作空间，不读取生产密钥、不调用付费模型。
 
 ## What Next
 

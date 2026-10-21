@@ -40,6 +40,8 @@ class ErrorType(StrEnum):
     """Network error / timeout — no HTTP status available."""
     INTERNAL = "internal"
     """Framework bug or otherwise unexpected exception."""
+    COMPLETION_CHECK = "completion_check"
+    """A bounded task-completion check still has unresolved requirements."""
     SETUP = "setup"
     """The run failed before the agent replied at all — assembling the
     agent, its toolkit, its knowledge bases, or resolving its model."""

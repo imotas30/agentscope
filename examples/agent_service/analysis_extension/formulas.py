@@ -269,7 +269,7 @@ def trace_formula(facts, target_ref):
             active.discard(fid)
     try:
         computed = visit(target)
-        state = 'MISMATCH' if any(n['status'] == 'MISMATCH' for n in nodes) else 'MATCH' if target.get('formula') else 'NO_FORMULA'
+        state = 'MISMATCH' if any(n['status'] == 'MISMATCH' for n in nodes) else 'MATCH' if nodes[0]['expression'] else 'NO_FORMULA'
     except AnalysisError:
         computed, state = None, 'BLOCKED'
     by_ref = {n['factRef']: n for n in nodes}
@@ -287,14 +287,28 @@ def trace_formula(facts, target_ref):
         n['comparisons'] = {
             'local': comparison(n['observed'], n['localCheck']['value'], 'source', 'immediate_inputs_calculation'),
             'recursive': comparison(n['observed'], n['recalculated'], 'source', 'recursive_calculation')}
+    blockers = [{'factRef': n['factRef'], **d} for n in nodes for d in n['diagnostics']]
+    recovery = None
+    if state == 'BLOCKED':
+        recovery = {
+            'targetFactRef': target_ref,
+            'nextAction': 'INSPECT_FORMULA',
+            'blockerCount': len(blockers), 'blockers': blockers[:10],
+            'pendingDependencyCount': len(pending), 'pendingDependencies': pending[:10],
+            'hint': '按目标 factRef 读取 formulas 的节点与依赖页。缺失地址先检查同一来源、对象、观察中已捕获但未选入的单元格；仍缺失再按来源能力补取。循环、歧义、范围边界或不支持表达式保留具体断点，不猜公式或补零。',
+        }
     return {'targetFactRef': target_ref, 'status': state,
             'executionStatus': 'BLOCKED' if state == 'BLOCKED' else 'COMPLETED',
             'sourceConsistency': state if state in ('MATCH', 'MISMATCH') else 'NOT_CHECKED',
+            'applicabilityStatus': ('NO_CAPTURED_FORMULA' if state == 'NO_FORMULA'
+                                    else 'CAPTURED_FORMULA' if nodes[0]['expression']
+                                    else 'UNDETERMINED'),
+            'recovery': recovery,
             'targetLocalCheck': nodes[0]['localCheck'],
             'comparisons': nodes[0]['comparisons'],
             'differenceOriginRefs': nodes[0]['differenceOriginRefs'],
             'boundaryMeaning': 'external_formulas_not_expanded_but_captured_values_included', 'nodes': nodes, 'pendingDependencies': pending,
             'externalBoundaries': [n['factRef'] for n in nodes if n.get('boundary') == 'EXTERNAL_REFERENCE'],
-            'sourceFactIds': sorted(checked), 'value': decimal_text(computed) if computed is not None else None,
+            'sourceFactIds': sorted(checked), 'value': decimal_text(computed) if computed is not None and state != 'NO_FORMULA' else None,
             'meaning': 'captured_formula_arithmetic_not_business_cause',
             'applicability': '按捕获的唯一公式及来源坐标复算，不证明来源系统实际执行了该公式。'}

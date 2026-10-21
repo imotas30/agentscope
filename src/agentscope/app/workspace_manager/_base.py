@@ -124,6 +124,10 @@ class WorkspaceManagerBase(ABC):
                 A workspace id.
         """
         del session_id
+        if self._storage is not None:
+            agent = await self._storage.get_agent(user_id, agent_id)
+            if agent is not None and agent.data.workspace_id:
+                return agent.data.workspace_id
         if self._isolation is IsolationPolicy.PER_USER:
             return hashlib.blake2b(
                 f"user::{user_id}".encode("utf-8"),

@@ -17,6 +17,7 @@ from .rag.knowledge_base_manager import KnowledgeBaseManagerBase
 from .workspace_manager import WorkspaceManagerBase
 from ._router import (
     agent_router,
+    management_router,
     channel_router,
     chat_router,
     credential_router,
@@ -137,6 +138,7 @@ def create_app(
     download_secret: str | None = None,
     realtime_ice_servers: list[dict[str, Any]] | None = None,
     skill_store: LocalSkillStore | None = None,
+    auth_service: Any | None = None,
     title: str = "AgentScope",
     version: str = __version__,
     **kwargs: Any,
@@ -321,6 +323,11 @@ def create_app(
             ``AGENTSCOPE_REALTIME_ICE_SERVERS`` is used. The default is an
             empty list, which permits host candidates without silently
             sending network metadata to a public STUN service.
+        auth_service (`AuthService | None`, optional):
+            Password authentication and account management. When provided,
+            every business HTTP route requires a revocable login cookie;
+            caller-supplied identity headers are replaced. When omitted,
+            the embedder must provide its own trusted identity boundary.
         title (`str`, defaults to ``"AgentScope"``):
             OpenAPI title shown in the docs UI.
         version (`str`, defaults to the package version):
@@ -340,6 +347,7 @@ def create_app(
 
     # Attach shared state that lifespan and dependencies read from app.state
     app.state.storage = storage
+    app.state.auth_service = auth_service
     app.state.message_bus = message_bus
     workspace_manager.bind_storage(storage)
     app.state.workspace_manager = workspace_manager
@@ -446,6 +454,7 @@ def create_app(
     # Built-in routers
     for router in (
         agent_router,
+        management_router,
         chat_router,
         credential_router,
         health_router,
@@ -486,5 +495,33 @@ def create_app(
     # Optional extra middlewares
     for middleware in extra_middlewares or []:
         app.add_middleware(middleware.cls, **middleware.kwargs)
+
+    if auth_service is not None:
+        from fastapi.exceptions import RequestValidationError
+        from .auth._http import AuthMiddleware, auth_router
+
+        app.include_router(auth_router(auth_service))
+        app.add_middleware(AuthMiddleware, service=auth_service)
+
+        @app.exception_handler(RequestValidationError)
+        async def _auth_validation_error(
+            _: Any,
+            exc: RequestValidationError,
+        ) -> JSONResponse:
+            # Pydantic includes rejected input values by default, including
+            # plaintext passwords. Only return field locations and messages.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {
+                            "loc": item["loc"],
+                            "msg": item["msg"],
+                            "type": item["type"],
+                        }
+                        for item in exc.errors()
+                    ],
+                },
+            )
 
     return app

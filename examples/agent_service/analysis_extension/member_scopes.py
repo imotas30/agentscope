@@ -93,7 +93,7 @@ def adapt(registry, captures, selections, scope, max_facts):
                   'referenceMembers': [resolved[v]['memberRef'] for v in references],
                   'excludedMembers': excluded_members,
                   'memberBindings': list(resolved.values())}
-    results, facts = [], []
+    results, facts, period_coverage = [], [], []
     population = scope.get('population')
     if population and population.get('captureRef') not in captures:
         raise AnalysisError('UNKNOWN_POPULATION', '范围来源未纳入本次捕获。')
@@ -117,6 +117,12 @@ def adapt(registry, captures, selections, scope, max_facts):
             local.pop('population', None)
         local['excludedMembers'] = [{**e, 'objectId': e['sourceObjectId']} for e in excluded_members if e['captureRef'] in selected]
         result = adapter.adapt(selected, own, local, max_facts)
+        for period in result['scope'].get('periodCoverage', []):
+            item = deepcopy(period)
+            for missing in item.get('missingMemberPeriods', []):
+                raw = missing['objectId']
+                missing.update(objectId=member_ref(namespaces[ns], raw), sourceObjectId=raw)
+            period_coverage.append(item)
         results.append(result)
         if primary_namespaces == {ns} and local.get('population'):
             population_complete = result['scope'].get('populationComplete', False)
@@ -147,6 +153,7 @@ def adapt(registry, captures, selections, scope, max_facts):
             'scope': {**normalized, 'scopeId': 'scope_' + digest(scope)[:24], 'coverage': coverage,
                       'populationComplete': population_complete,
                       'selectedDataComplete': selected_complete, 'sourcePagesComplete': pages_complete,
+                      'periodCoverage': period_coverage,
                       'observedMembers': sorted(observed & primary), 'pendingMembers': sorted(primary - observed),
                       'observedReferenceMembers': sorted(observed & reference), 'pendingReferenceMembers': sorted(reference - observed),
                       'semanticCompleteness': 'UNVERIFIED'}}

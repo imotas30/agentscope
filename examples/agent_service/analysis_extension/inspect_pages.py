@@ -7,7 +7,7 @@ INSPECT_CHAR_BUDGET = 24000
 
 def compact_facts(items):
     contexts, rows = {}, []
-    context_keys = {'context', 'taskName', 'formName', 'bindingRef', 'executionId', 'observationId', 'period', 'readAt', 'stepId'}
+    context_keys = {'context', 'taskName', 'formName', 'bindingRef', 'executionId', 'observationId', 'period', 'executionPeriod', 'periodResolution', 'periodPlanId', 'periodWorkIndex', 'readAt', 'stepId'}
     for item in items:
         context = {k: v for k, v in item.items() if k in context_keys}
         key = 'context_' + digest(context)[:24]

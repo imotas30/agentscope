@@ -147,10 +147,15 @@ class AgentConfigGroupingTest(IsolatedAsyncioTestCase):
             sorted(by_name["legacy"]),
             [
                 "chat_config",
+                "copy_fingerprint",
+                "defaults",
+                "description",
                 "id",
+                "memory_config",
                 "name",
                 "resource_config",
                 "system_prompt",
+                "workspace_id",
             ],
         )
 
@@ -280,7 +285,7 @@ class AgentConfigGroupingTest(IsolatedAsyncioTestCase):
 
         self.assertListEqual(
             sorted(schema["properties"]),
-            ["chat_config", "name", "resource_config", "system_prompt"],
+            ["chat_config", "defaults", "description", "memory_config", "name", "resource_config", "system_prompt"],
         )
         self.assertEqual(
             set(schema["properties"]["resource_config"]["properties"]),

@@ -60,6 +60,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(storage)
+        # Resolve defaults through the same visibility policy as chat, before
+        # schedulers/channels can create sessions for shared agents.
+        resource_access_service = ResourceAccessService(
+            storage=storage,
+            policy=resource_access_policy,
+        )
+        app.state.resource_access_service = resource_access_service
+        app.state.resource_service.access = resource_access_service
+        storage.bind_session_agent_resolver(
+            resource_access_service.try_resolve_agent,
+        )
+        stack.callback(storage.bind_session_agent_resolver, None)
+        auth_service = getattr(app.state, "auth_service", None)
+        if auth_service is not None:
+            await stack.enter_async_context(auth_service)
         await stack.enter_async_context(message_bus)
         await stack.enter_async_context(workspace_manager)
         if knowledge_base_manager is not None:
@@ -102,20 +117,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 message_bus=message_bus,
                 workspace_manager=workspace_manager,
                 enabled=enable_scheduler,
+                auth_service=auth_service,
             ),
         )
         app.state.scheduler_manager = scheduler
-
-        # Resource access service — combines owner-scoped storage reads
-        # with the injected policy so both routers and runtime services
-        # go through a single choke point when resolving credentials /
-        # agents / knowledge bases.
-        resource_access_service = ResourceAccessService(
-            storage=storage,
-            policy=resource_access_policy,
-        )
-        app.state.resource_access_service = resource_access_service
-        app.state.resource_service.access = resource_access_service
 
         # Channel wiring is built here (before ChatService) so the chat
         # service can hand the client factory to get_toolkit: a session
@@ -165,6 +170,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         storage=storage,
                         message_bus=message_bus,
                         workspace_manager=workspace_manager,
+                        auth_service=auth_service,
                     ),
                 )
         app.state.channel_clients = channel_clients
@@ -296,6 +302,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 storage=storage,
                 chat_service=chat_service,
                 chat_run_registry=chat_run_registry,
+                auth_service=auth_service,
             ),
         )
         await stack.enter_async_context(
@@ -323,5 +330,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
 
         stack.push_async_callback(_close_realtime_connections)
+
+        if auth_service is not None:
+            monitor = asyncio.create_task(auth_service.monitor_runtime(app))
+
+            async def _stop_auth_monitor() -> None:
+                monitor.cancel()
+                await asyncio.gather(monitor, return_exceptions=True)
+
+            stack.push_async_callback(_stop_auth_monitor)
 
         yield

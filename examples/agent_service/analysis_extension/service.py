@@ -18,10 +18,12 @@ def verification(facts, captures, verifier_refs=None, sources=None):
     return (sources or default_sources()).verify(facts, captures, verifier_refs)
 
 
-def compact_derived(values, limit=100):
+def compact_derived(values, limit=100, analysis_ref=None):
     result = []
     for value in values:
         compact = dict(value)
+        if analysis_ref and value.get('operator') == 'FORMULA_CHECK' and len(value.get('inputRefs', [])) == 1:
+            compact['nextRead'] = {'section': 'formulas', 'analysisRef': analysis_ref, 'factRef': value['inputRefs'][0]}
         for key in ("inputRefs", "sourceFactIds", "orderedFactIds", "unavailableFactIds"):
             if key in compact and len(compact[key]) > limit:
                 compact[key + "Total"] = len(compact[key])
@@ -62,6 +64,13 @@ class AnalysisService:
         for rule in self.finding_rules.values():
             findings.validate_threshold(rule)
         self.actions = ActionRuntime(store, owner)
+        self.turn = None
+
+    async def task(self, **kwargs):
+        await self.authorize()
+        if self.turn is None:
+            raise AnalysisError('NO_ACTIVE_USER_TURN', '当前没有可登记的真实用户轮。')
+        return self.turn.task(**kwargs)
 
     async def read_query_result(self, captureRef, pointer='', offset=0, limit=20, search=None, fields=None):
         from .query_results import read_receipt
@@ -152,7 +161,7 @@ class AnalysisService:
         verification_tasks = [{**t, 'evidenceIds': sorted(t['evidenceIds'])} for t in tasks.values()]
         return {"schemaVersion": SCHEMA_VERSION, "analysisRef": artifact["analysisRef"],
                 "baseRevision": artifact["baseRevision"], "scope": artifact["scope"], **public_states(artifact),
-                "factCount": len(artifact["facts"]), "derivedValues": compact_derived(artifact["derivedValues"]),
+                "factCount": len(artifact["facts"]), "derivedValues": compact_derived(artifact["derivedValues"], analysis_ref=artifact["analysisRef"]),
                 'sourceContexts': artifact.get('sourceContexts', []),
                 'verificationTasks': verification_tasks[:100], 'verificationTaskCount': len(verification_tasks),
                 'relationCount': len(artifact['relations']),
@@ -181,6 +190,11 @@ class AnalysisService:
                     "sourceAdapters": sorted(self.sources.factories),
                     "contextModes": ['SINGLE_SNAPSHOT', 'COMPOSITE'],
                     "capabilityPolicy": 'HOST_CONFIGURED_SKILL_GUIDED',
+                    "turnCompletion": {'tool': 'AnalysisTask', 'modes': ['DIRECT', 'ANALYSIS', 'REPORT'],
+                                       'scope': 'real_user_turn', 'resumePreservesContract': True,
+                                       'analysisRequiresDeclaredWork': True, 'checksActualSourceVerification': True,
+                                       'endGuard': 'bounded_continuation', 'semanticReview': 'evidence_based_model_review',
+                                       'noImplicitBusinessMethods': True},
                     "operators": ["SORT", "RANK", "COUNT", "SUM", "DIFFERENCE", "RATIO", "LINEAR", "CONVERT", "FORMULA_CHECK", "RECONCILE", "ARITHMETIC"],
                     "viewTypes": ["METRIC", "TABLE", "BAR_VALUES", "BAR_RANK", "BRIDGE", "ORDER", "FORMULA", "HIERARCHY", "WATERFALL", "RECONCILIATION"],
                     "findingRules": self.finding_rules, "findingVersion": findings.FINDING_VERSION,
@@ -218,6 +232,10 @@ class AnalysisService:
                                              "followUp": self.actions_enabled},
                     "calculationValidationMeaning": "execution_conditions_only_not_source_consistency",
                     "formulaChecks": ["localCheck", "sourceConsistency", "differenceOriginRefs", "propagatedDifference"],
+                    "formulaInspection": {"version": 2, "noCapturedFormula": "COMPLETED_NOT_APPLICABLE",
+                                          "noCapturedFormulaDoesNotProveSourceAbsence": True,
+                                          "blockedRecovery": ["nextRead", "diagnostics.details.blockers", "diagnostics.details.pendingDependencies"],
+                                          "implicitBusinessPolicy": None},
                     "reconciliation": {"operator": "RECONCILE", "aggregation": "SUM", "requires": ["relationRef", "parent_then_all_direct_children"], "defaultExpectation": None},
                     "inventory": {"section": "inventory", "scope": "current_session", "preservesObservations": True, "defaultDetail": "compact", "details": ["compact", "full"], "filters": ["captureRef", "stepId", "cellKey", "objectId", "bindingRef", "period", "measureCode"]},
                     "capabilities": await self.actions.capabilities() if self.actions_enabled else []}
@@ -288,7 +306,7 @@ class AnalysisService:
             return {"proposals": bounded_page(artifact["actions"], offset, limit, self.store.limits.page_size),
                     "runs": bounded_page(self.store.list_action_runs(self.owner, analysisRef), offset, limit, self.store.limits.page_size)}
         if section == "derived":
-            return bounded_page(compact_derived(artifact["derivedValues"]), offset, limit, self.store.limits.page_size)
+            return bounded_page(compact_derived(artifact["derivedValues"], analysis_ref=analysisRef), offset, limit, self.store.limits.page_size)
         if section == "formulas":
             if derivedId is not None or factRef is None:
                 details = {'path': '/derivedId' if derivedId is not None else '/factRef',

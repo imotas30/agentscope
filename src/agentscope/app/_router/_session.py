@@ -325,6 +325,8 @@ async def create_session(
     """
     # Agent must be visible to the caller (own or shared).
     agent = await access.resolve_agent(user_id, body.agent_id)
+    from ..storage._agent_defaults import MODEL_FIELDS
+    inherited = [key for key in MODEL_FIELDS if key not in body.model_fields_set]
     resource_config = await ResourceConfigService(
         storage, access
     ).validate_config(
@@ -334,23 +336,18 @@ async def create_session(
         agent_config=agent.data.resource_config,
     )
 
-    await _ensure_credential_exists(access, user_id, body.chat_model_config)
-    await _ensure_credential_exists(
-        access,
-        user_id,
-        body.fallback_chat_model_config,
-    )
-    await _ensure_credential_exists(access, user_id, body.tts_model_config)
-    await _ensure_credential_exists(
-        access,
-        user_id,
-        body.realtime_model_config,
-    )
-    await _ensure_knowledge_bases_exist(
-        access,
-        user_id,
-        body.knowledge_config,
-    )
+    # Sharing an agent does not implicitly share its credentials or KBs.
+    # Validate the effective defaults too, while preserving explicit nulls.
+    for field in MODEL_FIELDS:
+        value = (
+            getattr(agent.data.defaults, field)
+            if agent.data.defaults is not None and field in inherited
+            else getattr(body, field)
+        )
+        if field == "knowledge_config":
+            await _ensure_knowledge_bases_exist(access, user_id, value)
+        else:
+            await _ensure_credential_exists(access, user_id, value)
 
     # Resolve the workspace binding for this session. Explicit
     # ``body.workspace_id`` always wins (used by team invite / borrow
@@ -369,6 +366,8 @@ async def create_session(
         agent_id=body.agent_id,
         config=SessionConfig(
             workspace_id=resolved_workspace_id,
+            **({"inherited_fields": [*inherited, "permission_mode"]}
+               if agent.data.defaults is not None else {}),
             resource_config=resource_config,
             chat_model_config=body.chat_model_config,
             fallback_chat_model_config=body.fallback_chat_model_config,
@@ -545,15 +544,30 @@ async def update_session(
         body.knowledge_config,
     )
 
+    if body.inherit_defaults:
+        from ..storage._agent_defaults import DEFAULT_FIELDS, MODEL_FIELDS
+        if not set(body.inherit_defaults) <= set(DEFAULT_FIELDS):
+            raise HTTPException(422, "Unknown default field.")
+        if set(body.inherit_defaults) & body.model_fields_set:
+            raise HTTPException(422, "Cannot inherit and override the same field.")
+        agent = await access.resolve_agent(user_id, agent_id)
+        if agent.data.defaults is None:
+            raise HTTPException(409, "请先在智能体管理中保存默认配置。")
+        for field in set(body.inherit_defaults) & set(MODEL_FIELDS):
+            value = getattr(agent.data.defaults, field)
+            if field == "knowledge_config":
+                await _ensure_knowledge_bases_exist(access, user_id, value)
+            else:
+                await _ensure_credential_exists(access, user_id, value)
+
     # PATCH semantics: only fields explicitly present in the request body are
     # applied. ``exclude_unset=True`` lets clients distinguish "leave
     # unchanged" (omit) from "clear" (send ``null``) — required for clearing
     # ``fallback_chat_model_config``.
     config_updates = body.model_dump(
         exclude_unset=True,
-        exclude={"permission_mode"},
+        exclude={"permission_mode", "inherit_defaults"},
     )
-
     # An explicit rename settles the name for good — auto-naming must
     # not overwrite what the user just typed.
     if "name" in config_updates:
@@ -587,13 +601,19 @@ async def update_session(
                 409,
                 "Resource bindings changed. Reload the session before saving.",
             )
+        inherited = set(latest.config.inherited_fields)
+        inherited.difference_update(body.model_fields_set)
+        if body.inherit_defaults is not None:
+            inherited.update(body.inherit_defaults)
+        config_updates["inherited_fields"] = sorted(inherited)
         latest.config = SessionConfig.model_validate(
             {**latest.config.model_dump(mode="json"), **config_updates},
         )
         if body.permission_mode is not None:
             latest.state.permission_context.mode = body.permission_mode
 
-    return await storage.mutate_session(user_id, agent_id, session_id, mutate)
+    await storage.mutate_session(user_id, agent_id, session_id, mutate)
+    return await storage.get_session(user_id, agent_id, session_id)
 
 
 # ----------------------------------------------------------------------

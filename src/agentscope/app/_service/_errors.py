@@ -58,6 +58,7 @@ _GENERIC_MESSAGE: dict[ErrorType, str] = {
         "Could not reach the model service — network error or timeout."
     ),
     ErrorType.INTERNAL: "An unexpected internal error occurred.",
+    ErrorType.COMPLETION_CHECK: "The task has unresolved completion requirements.",
     ErrorType.SETUP: (
         "The session could not be prepared — check the agent's model, "
         "tools and knowledge bases."

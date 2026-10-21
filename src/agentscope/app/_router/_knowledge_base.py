@@ -18,6 +18,7 @@ from fastapi import (
     HTTPException,
     Path,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -858,6 +859,7 @@ async def create_document_download_token(
     summary="Fetch the original uploaded file of a document",
 )
 async def read_knowledge_document(
+    request: Request = None,
     knowledge_base_id: str = Path(description="The knowledge base id."),
     document_id: str = Path(description="The document id."),
     download: bool = Query(
@@ -907,7 +909,12 @@ async def read_knowledge_document(
             The file bytes with content-type / length / disposition
             headers derived from the upload-time record.
     """
-    if token is not None:
+    if (
+        request is not None
+        and getattr(request.state, "auth_user", None) is not None
+    ):
+        user_id = request.state.auth_user["id"]
+    elif token is not None:
         try:
             user_id = verify_download_token(
                 download_secret,

@@ -7,6 +7,7 @@ import re
 
 from ..models import AnalysisError, decimal_text, decimal_value, digest, exact_loads, json_values
 from ..sources import SourceAdapter, source_context, combined_context
+from .budget_periods import period_execution, period_coverage
 
 def budget_receipt(response: dict) -> dict:
     candidates = []
@@ -151,6 +152,7 @@ def validate_form_request(capture, receipt, step_id, form):
             raise AnalysisError("CONTEXT_CONFLICT", "表观察与预算回执不属于同一固定上下文。")
     step, steps = _step_request(capture, step_id)
     query = step.get("formQuery", {})
+    progress = period_execution(capture, receipt, step_id, context)
     if query.get("periodCode") and query["periodCode"] != context.get("period"):
         raise AnalysisError("REQUEST_MISMATCH", "表观察时期与原请求不一致。")
     for key, value in query.get("dimensions", {}).items():
@@ -163,6 +165,8 @@ def validate_form_request(capture, receipt, step_id, form):
         for previous in receipt.get("data", {}).get("stepResults", []):
             if previous.get("stepId") in step.get("inputs", []):
                 bindings.update(row["resourceIri"] for row in previous.get("rows", []) if row.get("resourceIri"))
+        if progress:
+            bindings.update(progress['bindingIris'])
     if not binding or binding not in bindings:
         raise AnalysisError("BINDING_UNPROVEN", "表结果绑定未由原请求或已返回的上游步骤证明。")
     observation = runtime.get("observation") or {}
@@ -218,7 +222,9 @@ def catalog(capture):
                           "executionId": receipt.get('executionId'),
                           "stepId": step_id, "bindingRef": context.get("target", {}).get("formBindingKey"),
                           "dimensionModels": dimension_models(form),
-                          "effectiveDimensions": context.get("effectiveDimensions", {}), "period": context.get("period"),
+                          "effectiveDimensions": context.get("effectiveDimensions", {}),
+                          "period": cell.get('dimensions', {}).get('DATATIME', context.get('period')),
+                          "executionPeriod": context.get('period'), "periodResolution": context.get('periodResolution'),
                           "cellKey": cell.get("key"), "row": cell.get("row"), "column": cell.get("column"),
                           "headers": cell.get("headers", []), "measureCode": cell.get("measureCode"),
                           "dimensions": cell.get("dimensions", {}), "displayValue": cell.get("displayValue"),
@@ -258,18 +264,19 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
     receipts = {ref: receipt_from_capture(value) for ref, value in captures.items()}
     # Resume requests intentionally contain no plan. Recover only through the
     # server's exact continuationOf/resumeRef link and a captured original request.
-    effective, visiting = {}, set()
+    effective = {}
     def linked(ref):
-        if ref in effective:
-            return effective[ref]
-        if ref in visiting:
-            raise AnalysisError("CYCLIC_RESUME", "续读链存在循环。")
-        if len(visiting) >= 100:
-            raise AnalysisError("RESUME_LIMIT", "续读链超过支持的深度。")
-        visiting.add(ref)
-        capture, receipt = captures[ref], receipts[ref]
-        resume = capture["request"].get("resumeRef")
-        if resume:
+        path, visiting = [], set()
+        current = ref
+        while current not in effective:
+            if current in visiting:
+                raise AnalysisError("CYCLIC_RESUME", "续读链存在循环。")
+            visiting.add(current)
+            capture, receipt = captures[current], receipts[current]
+            resume = capture['request'].get('resumeRef')
+            if not resume:
+                effective[current] = capture
+                break
             parents = [key for key, r in receipts.items()
                        if r.get("executionId") == resume and r.get("resumeRef") == resume and r.get("status") == "PARTIAL"
                        and all(capture.get(k) == captures[key].get(k) for k in ("resourceId", "originalToolName", "serverName", "connectionFingerprint"))
@@ -277,15 +284,12 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
                        and all(receipt.get('context', {}).get(k) == r.get('context', {}).get(k) for k in CONTEXT_FIELDS)]
             if len(parents) != 1 or receipt.get("continuationOf") != resume:
                 raise AnalysisError("RESUME_UNPROVEN", "续读缺少唯一的已捕获上游执行或服务端关联。")
-            parent = linked(parents[0])
-            if (any(capture.get(k) != parent.get(k) for k in ("resourceId", "originalToolName", "serverName", "connectionFingerprint"))
-                    or receipt.get("querySessionId") != receipts[parents[0]].get("querySessionId")
-                    or any(receipt.get('context', {}).get(k) != receipts[parents[0]].get('context', {}).get(k) for k in CONTEXT_FIELDS)):
-                raise AnalysisError("RESUME_UNPROVEN", "续读与原工具或查询会话不一致。")
-            capture = {**capture, "request": {**parent["request"], **capture["request"]}}
-        visiting.remove(ref)
-        effective[ref] = capture
-        return capture
+            path.append((current, parents[0]))
+            current = parents[0]
+        for child, parent in reversed(path):
+            capture = captures[child]
+            effective[child] = {**capture, 'request': {**effective[parent]['request'], **capture['request']}}
+        return effective[ref]
     captures = {ref: linked(ref) for ref in captures}
     from ..identity import dimension_models, names_for
     from ..actions import source_identity
@@ -343,10 +347,15 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
         forms = [(sid, form) for sid, form in form_rows(receipt) if sid == selection.get("stepId")]
         if selection.get("bindingRef"):
             forms = [(sid, form) for sid, form in forms if (form.get("runtime") or {}).get("context", {}).get("target", {}).get("formBindingKey") == selection["bindingRef"]]
+        if selection.get('executionPeriod'):
+            forms = [(sid, form) for sid, form in forms if (form.get('runtime') or {}).get('context', {}).get('period') == selection['executionPeriod']]
+        if selection.get('observationId'):
+            forms = [(sid, form) for sid, form in forms if (form.get('runtime') or {}).get('observation', {}).get('observationId') == selection['observationId']]
         if len(forms) != 1:
-            raise AnalysisError("AMBIGUOUS_FORM", "表结果无法唯一定位，请指定实际步骤和绑定。")
+            raise AnalysisError("AMBIGUOUS_FORM", "表结果无法唯一定位，请指定实际步骤、绑定、执行时期或观察标识。")
         sid, form = forms[0]
         context, observation = validate_form_request(capture, receipt, sid, form)
+        progress = period_execution(capture, receipt, sid, context)
         if not observation.get("observationId"):
             raise AnalysisError("MISSING_OBSERVATION", "该结果没有可用的运行观察。")
         oid = observation["observationId"]
@@ -368,9 +377,14 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
             cell = matched[key]
             effective = {**context.get("effectiveDimensions", {}), **cell.get("dimensions", {})}
             query = _step_request(capture, sid)[0].get("formQuery", {})
-            for request_field, cell_field in (("cellKey", "key"), ("measureCode", "measureCode"), ("expression", "expression")):
+            for request_field, cell_field in (("cellKey", "key"), ("measureCode", "measureCode")):
                 if query.get(request_field) is not None and cell.get(cell_field) != query[request_field]:
                     raise AnalysisError("REQUEST_TARGET_MISMATCH", "定位单元格与原请求的指标或坐标不一致。")
+            if query.get('expression') is not None and cell.get('expression') != query['expression']:
+                # Native offset resolution is attested by the source; do not reproduce that engine in Python.
+                if (form.get('matchedExpression') != query['expression'] or form.get('status') not in ('VALUE_FOUND', 'CELL_HAS_NO_VALUE')
+                        or cell not in form.get('cells', []) or cell.get('issue')):
+                    raise AnalysisError('REQUEST_TARGET_MISMATCH', '表达式变化缺少服务端完成时期偏移后的目标匹配证明。')
             for dimension, expected in query.get("targetDimensions", {}).items():
                 if effective.get(dimension) != expected:
                     raise AnalysisError("REQUEST_TARGET_MISMATCH", "定位单元格与原请求的目标维度不一致。")
@@ -410,6 +424,9 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
                     "cellAddress": source_address(cell, cells),
                     "measureCode": cell.get("measureCode"), "headers": cell.get("headers") or [c["displayValue"] for c in cells if c.get("row") == cell.get("row") and c.get("displayValue") and cell_value(c, capture.get("numberFormat"))[1] == "NOT_APPLICABLE"],
                     "dimensions": effective, "period": effective.get("DATATIME", context.get("period")),
+                    "executionPeriod": context.get('period'), "periodResolution": context.get('periodResolution'),
+                    "periodPlanId": progress['planId'] if progress else None,
+                    "periodWorkIndex": progress['workIndex'] if progress else None,
                     "formName": form.get("formName"), "taskName": form.get("taskName"),
                     "rawValueJson": cell.get("rawValueJson"), "displayValue": cell.get("displayValue"),
                     "value": value, "valueState": state, "precision": precision,
@@ -434,7 +451,7 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
     facts = list(facts_by_observation.values())
     positions = defaultdict(list)
     for fact in facts:
-        positions[(fact['sourceContextId'], fact["bindingRef"], fact["objectId"], fact["cellKey"], digest(fact["dimensions"]))].append(fact)
+        positions[(fact['sourceContextId'], fact["bindingRef"], fact["executionPeriod"], fact["objectId"], fact["cellKey"], digest(fact["dimensions"]))].append(fact)
     for group in positions.values():
         if len(group) > 1:
             for fact in group:
@@ -452,9 +469,11 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
             if observation_key not in selected_observations:
                 continue
             validate_form_request(captures[ref], receipt, sid, form)
+            progress = period_execution(captures[ref], receipt, sid, (form.get('runtime') or {}).get('context'))
             page = form.get("page")
             pages[observation_key].append({**(page or {"targeted": True}),
-                               "receiptComplete": receipt.get("completeness", {}).get("enumerationExhausted") is True})
+                               "periodPlan": progress is not None,
+                               "receiptComplete": progress['periodFinished'] if progress else receipt.get("completeness", {}).get("enumerationExhausted") is True})
     pages_complete = True
     if len(facts) > max_facts:
         raise AnalysisError("FACT_LIMIT", "包含未查询对象后的事实数量超过本次上限。")
@@ -466,6 +485,21 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
         # A targeted lookup can share an observation with a captured full-grid
         # page. It has no page bounds and cannot prove or invalidate grid coverage.
         group = [p for p in group if not p.get('targeted')]
+        if any('startCell' in p or p.get('periodPlan') for p in group):
+            if any(type(p.get(k)) is not int for p in group for k in ('startCell', 'endCellExclusive', 'totalCells')):
+                raise AnalysisError('INVALID_PAGE_RANGE', '时期网格缺少完整的单元格分页位置。')
+            if (len({(p.get('contentDigest'), p['totalCells']) for p in group}) != 1
+                    or any(not 0 <= p['startCell'] <= p['endCellExclusive'] <= p['totalCells']
+                           or p['endCellExclusive'] - p['startCell'] != len(p.get('cells', [])) for p in group)):
+                raise AnalysisError('INVALID_PAGE_RANGE', '单元格分页数量或观察摘要不一致。')
+            end, continuous = 0, True
+            for p in sorted(group, key=lambda p: (p['startCell'], p['endCellExclusive'])):
+                continuous &= p['startCell'] <= end
+                end = max(end, p['endCellExclusive'])
+            finals = [p for p in group if p['endCellExclusive'] == p['totalCells'] and p.get('observationExhausted') is True
+                      and p.get('nextCursor') is None and p['receiptComplete']]
+            pages_complete &= continuous and bool(finals) and all(p.get('coverage') == 'COMPLETE' for p in group)
+            continue
         if any(type(p.get("startRow")) is not int or type(p.get("endRowExclusive")) is not int or p["startRow"] >= p["endRowExclusive"] for p in group):
             raise AnalysisError("INVALID_PAGE_RANGE", "观察分页范围缺失或不合法。")
         if len({(p.get("contentDigest"), p.get("totalRows"), p.get("totalColumns")) for p in group}) != 1:
@@ -482,6 +516,8 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
         # header offsets; do not add the first published row to it.
         bounded_end = type(total) is int and final["endRowExclusive"] == total
         pages_complete &= continuous and bounded_end and final.get("observationExhausted") is True and final.get("nextCursor") is None and final["receiptComplete"] and all(p.get("coverage") == "COMPLETE" for p in group)
+    periods, periods_complete = period_coverage(facts, captures, receipts, source_contexts)
+    pages_complete &= periods_complete
     population_complete = False
     population = scope_request.get("population")
     if population:
@@ -503,6 +539,7 @@ def adapt(captures: dict[str, dict], selections: list[dict], scope_request: dict
     return {"facts": facts, "scope": {**scope_request, "scopeId": "scope_" + digest(scope_request)[:24],
             "coverage": coverage, "populationComplete": population_complete, "selectedDataComplete": pages_complete and observed_members == selected_members,
             "sourcePagesComplete": pages_complete,
+            "periodCoverage": periods,
             "observedMembers": sorted(observed_primary), "pendingMembers": sorted(set(scope_members) - observed_members),
             "observedReferenceMembers": sorted(observed_members & set(reference_members)),
             "pendingReferenceMembers": sorted(set(reference_members) - observed_members),

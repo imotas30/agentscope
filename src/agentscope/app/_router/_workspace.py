@@ -13,6 +13,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -583,6 +584,7 @@ async def create_download_token(
 
 @workspace_router.get("/files")
 async def read_workspace_file(
+    request: Request = None,
     agent_id: str = Query(...),
     session_id: str = Query(...),
     path: str = Query(
@@ -610,7 +612,14 @@ async def read_workspace_file(
     process is shared, so one large download must not be able to
     exhaust it for everyone else.
     """
-    if token is not None:
+    if (
+        request is not None
+        and getattr(request.state, "auth_user", None) is not None
+    ):
+        # Cookie deployments always require the current login. Legacy URL
+        # tokens cannot override its identity or survive session revocation.
+        user_id = request.state.auth_user["id"]
+    elif token is not None:
         try:
             user_id = workspace_service.verify_download_token(token, path)
         except ValueError as e:
@@ -650,6 +659,12 @@ async def read_workspace_file(
     headers: dict[str, str] = {
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
+        # Workspace files are untrusted content, even when opened directly.
+        # Cookie authentication makes same-origin script execution unsafe.
+        "Content-Security-Policy": (
+            "sandbox; default-src 'none'; "
+            "style-src 'unsafe-inline'; img-src data:"
+        ),
     }
     # Lets the browser show real download progress instead of a
     # spinner of unknown length; omitted when the backend cannot stat.

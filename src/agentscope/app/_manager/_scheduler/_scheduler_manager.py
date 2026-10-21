@@ -28,6 +28,7 @@ from ...storage import (
 
 if TYPE_CHECKING:
     from apscheduler.triggers.cron import CronTrigger
+    from ...auth import AuthService
 
 
 class SchedulerManager:
@@ -62,6 +63,7 @@ class SchedulerManager:
         message_bus: MessageBus,
         workspace_manager: WorkspaceManagerBase,
         enabled: bool = True,
+        auth_service: "AuthService | None" = None,
     ) -> None:
         """Initialize the scheduler manager.
 
@@ -80,6 +82,8 @@ class SchedulerManager:
                 Whether this node owns the timers. Exactly one node in a
                 deployment should enable them; the rest still create,
                 edit and delete schedules — they just do not fire them.
+            auth_service (`AuthService | None`):
+                When supplied, prevent inactive accounts from firing tasks.
         """
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -87,6 +91,7 @@ class SchedulerManager:
         self._message_bus = message_bus
         self._workspace_manager = workspace_manager
         self._enabled = enabled
+        self._auth_service = auth_service
         self._scheduler = AsyncIOScheduler()
         # ``updated_at`` of each registered job, so a reconcile can tell
         # an edited schedule from an unchanged one.
@@ -195,6 +200,8 @@ class SchedulerManager:
                 return
 
             try:
+                if self._auth_service is not None and not await self._auth_service.is_active(record.user_id):
+                    return
                 if record.data.stateful:
                     stateful_session_id = f"{record.id}_stateful"
                     logger.info(

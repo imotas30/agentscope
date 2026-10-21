@@ -1091,7 +1091,7 @@ class AsyncSQLAlchemyStorage(StorageBase):
             agent_id=agent_id,
         )
 
-    async def list_agents(self, user_id: str) -> list[AgentRecord]:
+    async def list_agents(self, user_id: str, *, include_team: bool = False) -> list[AgentRecord]:
         """Return the user's ``source='user'`` agents only.
 
         Matches :meth:`RedisStorage.list_agents` — team-spawned
@@ -1106,7 +1106,7 @@ class AsyncSQLAlchemyStorage(StorageBase):
                     await sess.execute(
                         select(AgentRow).where(
                             AgentRow.user_id == user_id,
-                            AgentRow.source == "user",
+                            True if include_team else AgentRow.source == "user",
                         ),
                     )
                 )
@@ -1338,6 +1338,11 @@ class AsyncSQLAlchemyStorage(StorageBase):
             state=state if state is not None else AgentState(),
             **new_id_kwargs,
         )
+        from .._agent_defaults import initialize_defaults
+        record = initialize_defaults(
+            record, await self.resolve_session_agent(user_id, agent_id),
+            inherit_permission=state is None,
+        )
         await self._write_row(
             SessionRow,
             record,
@@ -1404,7 +1409,9 @@ class AsyncSQLAlchemyStorage(StorageBase):
                 .scalars()
                 .all()
             )
-        return [_to_record(r, SessionRecord) for r in rows]
+        from .._agent_defaults import resolve_defaults
+        agent = await self.resolve_session_agent(user_id, agent_id)
+        return [resolve_defaults(_to_record(r, SessionRecord), agent) for r in rows]
 
     async def get_session(
         self,
@@ -1413,12 +1420,15 @@ class AsyncSQLAlchemyStorage(StorageBase):
         session_id: str,
     ) -> SessionRecord | None:
         """One session; owner-scoped."""
-        _ = agent_id
         async with self._session() as sess:
             row = await sess.get(SessionRow, session_id)
-        if row is None or row.user_id != user_id:
+        if row is None or row.user_id != user_id or (agent_id and row.agent_id != agent_id):
             return None
-        return _to_record(row, SessionRecord)
+        from .._agent_defaults import resolve_defaults
+        record = _to_record(row, SessionRecord)
+        if record.config.inherited_fields:
+            return resolve_defaults(record, await self.resolve_session_agent(user_id, record.agent_id))
+        return record
 
     async def delete_session(
         self,

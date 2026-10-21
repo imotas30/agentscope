@@ -243,6 +243,12 @@ class SessionNaming(BaseModel):
     """
 
 
+DefaultField = Literal[
+    "chat_model_config", "fallback_chat_model_config", "tts_model_config",
+    "realtime_model_config", "knowledge_config", "permission_mode",
+]
+
+
 class SessionConfig(BaseModel):
     """Session configuration — set at creation, updatable via PATCH."""
 
@@ -317,6 +323,9 @@ class SessionConfig(BaseModel):
         default_factory=SessionResourceConfig,
         description="Session-only additions and inherited resource switches.",
     )
+
+    inherited_fields: list[DefaultField] = Field(default_factory=list)
+    """Explicit inheritance; old records default to no inherited fields."""
 
 
 class SessionRecord(_RecordBase):
