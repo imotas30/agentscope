@@ -46,7 +46,10 @@ class LocalWorkspaceManager(WorkspaceManagerBase):
             ttl (`float`, defaults to `3600.0`):
                 Seconds before an idle cached workspace is evicted.
         """
-        self._basedir = os.path.abspath(basedir)
+        # Resolve the service-configured root (which may be a deployment link),
+        # but keep per-agent paths unresolved so file management rejects aliases
+        # inside that root, including linked agent directories.
+        self._basedir = os.path.realpath(os.path.abspath(basedir))
         self._default_mcps = default_mcps or []
         self._skill_paths = skill_paths or []
         self._ttl = ttl
