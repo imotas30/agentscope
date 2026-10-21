@@ -118,26 +118,36 @@ function CardItem({ card, installed, now, onInstall, onOpen }: CardItemProps) {
 				{/* Name, author, tags — each step lighter than the last, so
 				    the eye lands on the name first. */}
 				<ItemTitle>
-					<span className="font-medium">{card.display_name || card.name}</span>
-					{card.author && (
-						<span className="text-xs text-muted-foreground">@{card.author}</span>
-					)}
-					{card.auth === 'inputs' && (
-						// Sans, not mono: this one is a warning meant for a
-						// person, while the tags below are machine metadata.
-						<Badge className="rounded-full border-0 bg-amber-600/10 px-2 py-0.5 text-[10.5px] font-normal text-amber-700">
-							{t('mcp.needsConfig')}
-						</Badge>
-					)}
-					{card.tags.slice(0, 4).map((tag) => (
-						<Badge
-							key={tag}
-							variant="secondary"
-							className="rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
-						>
-							{tag}
-						</Badge>
-					))}
+					<Button
+						type="button"
+						variant="ghost"
+						className="h-auto min-w-0 max-w-full flex-wrap justify-start p-0 text-left whitespace-normal hover:bg-transparent"
+						onClick={(event) => {
+							event.stopPropagation();
+							onOpen();
+						}}
+					>
+						<span className="font-medium">{card.display_name || card.name}</span>
+						{card.author && (
+							<span className="text-xs text-muted-foreground">@{card.author}</span>
+						)}
+						{card.auth === 'inputs' && (
+							// Sans, not mono: this one is a warning meant for a
+							// person, while the tags below are machine metadata.
+							<Badge className="rounded-full border-0 bg-amber-600/10 px-2 py-0.5 text-[10.5px] font-normal text-amber-700">
+								{t('mcp.needsConfig')}
+							</Badge>
+						)}
+						{card.tags.slice(0, 4).map((tag) => (
+							<Badge
+								key={tag}
+								variant="secondary"
+								className="rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
+							>
+								{tag}
+							</Badge>
+						))}
+					</Button>
 				</ItemTitle>
 				<ItemDescription className="line-clamp-1">{card.description}</ItemDescription>
 			</ItemContent>
@@ -490,7 +500,7 @@ function MinePanel({
 									variant="ghost"
 									className="text-muted-foreground"
 									onClick={() => onEdit(mcp)}
-									title={t('common.edit')}
+									tooltip={t('common.edit')}
 								>
 									<Pencil />
 								</Button>
@@ -499,7 +509,7 @@ function MinePanel({
 									variant="ghost"
 									className="text-muted-foreground"
 									onClick={() => onRemove(mcp.id)}
-									title={t('common.delete')}
+									tooltip={t('common.delete')}
 								>
 									<Trash2 />
 								</Button>

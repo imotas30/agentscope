@@ -20,6 +20,7 @@ interface Props {
 	schema: AgentSchemaV2Response;
 	values: AgentFormValues;
 	onChange: (section: AgentSection, key: string, value: SchemaFormValue) => void;
+	sections?: AgentSection[];
 }
 
 /**
@@ -37,7 +38,7 @@ const NESTED_SECTIONS: Array<{ key: Exclude<AgentSection, 'identity'>; i18n: str
 ];
 
 /** Top-level `AgentData` properties that group one mode's settings. */
-const MODE_BLOCKS = ['chat_config', 'resource_config'];
+const MODE_BLOCKS = ['chat_config', 'resource_config', 'defaults', 'memory_config'];
 
 const IDENTITY_I18N = 'identity';
 
@@ -82,7 +83,7 @@ function sliceSchema(root: JSONSchema): Record<AgentSection, JSONSchema> {
 	};
 }
 
-export function AgentFormFields({ schema, values, onChange }: Props) {
+export function AgentFormFields({ schema, values, onChange, sections: visibleSections }: Props) {
 	const { t } = useTranslation();
 	const sections = sliceSchema(schema.schema);
 
@@ -97,7 +98,7 @@ export function AgentFormFields({ schema, values, onChange }: Props) {
 
 	return (
 		<FieldGroup>
-			{rows.map(({ key: sectionKey, i18n: sectionI18n, sectionSchema }, idx) => {
+			{rows.filter(row => !visibleSections || visibleSections.includes(row.key)).map(({ key: sectionKey, i18n: sectionI18n, sectionSchema }, idx) => {
 				const legend = t(`agent-form.${sectionI18n}.legend`, {
 					defaultValue: sectionSchema.title ?? sectionKey,
 				});

@@ -4,6 +4,7 @@ import * as React from 'react';
 import type { ChannelRecord, ChannelStatus, ChannelTypeSchema } from '@/api';
 import { channelApi } from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
+import { Button } from '@/components/ui/button';
 import {
 	Empty,
 	EmptyDescription,
@@ -66,7 +67,19 @@ function ChannelCard({
 						<TypeAvatar type={type} className="size-9 rounded-lg" />
 					</ItemMedia>
 					<div className="min-w-0 flex-1">
-						<ItemTitle className="max-w-full truncate">{name}</ItemTitle>
+						<ItemTitle className="max-w-full truncate">
+							<Button
+								type="button"
+								variant="ghost"
+								className="h-auto min-w-0 max-w-full justify-start p-0 text-left whitespace-normal hover:bg-transparent"
+								onClick={(event) => {
+									event.stopPropagation();
+									onOpen();
+								}}
+							>
+								{name}
+							</Button>
+						</ItemTitle>
 						<span className="block truncate font-mono text-[11px] text-muted-foreground">
 							{typeName}
 						</span>
@@ -108,9 +121,11 @@ function ChannelCard({
 
 function ChannelTypeCard({ type, onPick }: { type: ChannelTypeSchema; onPick: () => void }) {
 	return (
-		<button
+		<Button
+			variant="ghost"
+			type="button"
 			onClick={onPick}
-			className="group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-panel transition hover:border-ring/40"
+			className="h-auto justify-start p-0 whitespace-normal group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-panel transition hover:border-ring/40"
 		>
 			<TypeAvatar type={type} className="size-10 rounded-lg" />
 			<div className="min-w-0 flex-1">
@@ -126,7 +141,7 @@ function ChannelTypeCard({ type, onPick }: { type: ChannelTypeSchema; onPick: ()
 				)}
 			</div>
 			<Plus className="size-4 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
-		</button>
+		</Button>
 	);
 }
 

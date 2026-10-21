@@ -196,7 +196,7 @@ export function WorkingDirectoryDialog({
 					size="sm"
 					disabled={disabled || !agentId || !sessionId}
 					className={className}
-					title={value ?? t('workdir.root')}
+					tooltip={value ?? t('workdir.root')}
 				>
 					<Folder />
 					<span className="truncate max-w-40">{label}</span>
@@ -332,7 +332,7 @@ export function WorkingDirectoryDialog({
 					<Button
 						onClick={() => void handleConfirm()}
 						disabled={saving || listedPath !== path}
-						title={listedPath === path ? undefined : t('workdir.pressEnter')}
+						tooltip={listedPath === path ? undefined : t('workdir.pressEnter')}
 					>
 						{saving ? (
 							<Loader2 className="size-3.5 animate-spin" />

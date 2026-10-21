@@ -2,16 +2,32 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/agentscope.svg" />
+		<link rel="icon" type="image/svg+xml" href="/agentscope.svg?v=collaboration" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>AgentScope</title>
-		<script>
-			// Applied before the first paint, so the theme never flashes.
-			const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-			const applyTheme = () =>
-				document.documentElement.classList.toggle('dark', darkQuery.matches);
-			applyTheme();
-			darkQuery.addEventListener('change', applyTheme);
+		<title>BudgetOntology</title>
+		<script id="appearance-bootstrap">
+			// Set the first frame before CSS loads. Runtime mode changes and
+			// system preference events are owned exclusively by next-themes.
+			(() => {
+				let mode = 'light';
+				let palette = 'blue';
+				try {
+					const storedMode = localStorage.getItem('agentscope-color-mode');
+					const storedPalette = localStorage.getItem('agentscope-color-palette');
+					if (['light', 'dark', 'system'].includes(storedMode)) mode = storedMode;
+					else if (storedMode) localStorage.removeItem('agentscope-color-mode');
+					if (['blue', 'teal', 'violet'].includes(storedPalette)) palette = storedPalette;
+				} catch {
+					/* Use defaults if browser storage is unavailable. */
+				}
+				const dark =
+					mode === 'dark' ||
+					(mode === 'system' &&
+						window.matchMedia('(prefers-color-scheme: dark)').matches);
+				document.documentElement.classList.toggle('dark', dark);
+				document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+				document.documentElement.dataset.palette = palette;
+			})();
 		</script>
 	</head>
 	<body>

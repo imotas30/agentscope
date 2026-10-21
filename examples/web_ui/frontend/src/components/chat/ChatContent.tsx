@@ -169,219 +169,241 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	}, [loading]);
 
 	const toConfirmedToolCalls = useMemo(() => {
-		return msgs.flatMap((message) => pendingCalls(message)
-			.filter((tc) => tc.state === 'asking')
-			.map((tc) => ({ replyId: message.id, toolCall: tc })));
+		return msgs.flatMap((message) =>
+			pendingCalls(message)
+				.filter((tc) => tc.state === 'asking')
+				.map((tc) => ({ replyId: message.id, toolCall: tc })),
+		);
 	}, [msgs]);
 
 	// On an empty session the prompt and the input centre together, so every box
 	// down to the message list shrinks to its content instead of filling.
 	return (
-		<AnalysisDraftContext.Provider value={{ insert: (text, workspace) => {
-			if (!loading && !disabled && workspace.agentId === agentId && workspace.sessionId === sessionId) inputRef.current?.insertDraft(text, inputScope);
-		} }}>
-		<div
-			className={cn(
-				'flex flex-col h-full w-full items-center gap-4',
-				isEmpty && 'justify-center',
-				className,
-			)}
+		<AnalysisDraftContext.Provider
+			value={{
+				insert: (text, workspace) => {
+					if (
+						!loading &&
+						!disabled &&
+						workspace.agentId === agentId &&
+						workspace.sessionId === sessionId
+					)
+						inputRef.current?.insertDraft(text, inputScope);
+				},
+			}}
 		>
-			{loading ? (
-				<div className="flex flex-1 w-full items-center justify-center">
-					{showSpinner ? <Spinner className="size-5 text-muted-foreground" /> : null}
-				</div>
-			) : historyError ? (
-				<div className="flex flex-1 w-full items-center justify-center p-4">
-					<Alert>
-						<TriangleAlert />
-						<AlertTitle>{t('chat.historyLoadFailed')}</AlertTitle>
-						<AlertDescription>{t('chat.historyLoadFailedDescription')}</AlertDescription>
-						{onReloadHistory && (
-							<AlertAction>
-								<Button variant="outline" size="sm" onClick={onReloadHistory}>
-									{t('chat.reloadHistory')}
-								</Button>
-							</AlertAction>
-						)}
-					</Alert>
-				</div>
-			) : isEmpty ? (
-				<span className="text-center text-4xl font-light tracking-[-0.035em] text-foreground mb-2">
-					{t('chat.greeting')}
-				</span>
-			) : (
-				<MessageScrollerProvider key={inputScope} autoScroll={true} defaultScrollPosition={'end'}>
-					<MessageScroller>
-						<MessageScrollerViewport>
-							<MessageScrollerContent>
-								{msgs.map((message, index) => {
-									const previous = msgs[index - 1];
-									const at = new Date(message.created_at);
-									const previousAt = previous
-										? new Date(previous.finished_at ?? previous.created_at)
-										: at;
-									return (
-										<MessageScrollerItem
-												key={`${inputScope}:${message.id}`}
-											messageId={message.id}
-										>
-											{at.getTime() - previousAt.getTime() >
-												TIME_MARKER_GAP_MS && (
-												<Marker
-													variant="separator"
-													className="mb-6 font-mono text-xs"
-												>
-													<MarkerContent>
-														{markerStamp(at, previousAt, i18n.language)}
-													</MarkerContent>
-												</Marker>
-											)}
-											<ASMessageBubble
-												agentId={agentId}
-												sessionId={sessionId}
-												message={message}
-												onUserConfirm={onUserConfirm}
-											/>
-										</MessageScrollerItem>
-									);
-								})}
-								{msgs.length > 0 &&
-									msgs[msgs.length - 1].finished_reason ===
-										ReplyFinishedReason.EXCEED_MAX_ITERS &&
-									phase === 'idle' && (
-										<Alert
-											variant={'default'}
-											className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50"
-										>
-											<TriangleAlert />
-											<AlertTitle>
-												{t('chat.maxItersExceeded.title')}
-											</AlertTitle>
-											<AlertDescription>
-												{t('chat.maxItersExceeded.description')}
-											</AlertDescription>
-											<AlertAction>
-												<Button
-													size={'xs'}
-													onClick={() => {
-														onSend([
-															{
-																id: crypto.randomUUID(),
-																type: 'text',
-																text: t(
-																	'chat.maxItersExceeded.continue',
-																),
-																created_at:
-																	new Date().toISOString(),
-																finished_at:
-																	new Date().toISOString(),
-															} as TextBlock,
-														]);
-													}}
-												>
-													{t('chat.maxItersExceeded.continue')}
-												</Button>
-											</AlertAction>
-										</Alert>
-									)}
-							</MessageScrollerContent>
-						</MessageScrollerViewport>
-						<MessageScrollerButton className="rounded-full" />
-					</MessageScroller>
-				</MessageScrollerProvider>
-			)}
-
-			{loading ? null : (
-				<div className="relative min-w-full max-w-full w-full">
-					<FlipCard
-						visible={toConfirmedToolCalls.length > 0 || footerSlot !== null}
-						className="absolute bottom-full left-0 right-0 mb-2 z-50"
+			<div
+				className={cn(
+					'flex flex-col h-full w-full items-center gap-4',
+					isEmpty && 'justify-center',
+					className,
+				)}
+			>
+				{loading ? (
+					<div className="flex flex-1 w-full items-center justify-center">
+						{showSpinner ? <Spinner className="size-5 text-muted-foreground" /> : null}
+					</div>
+				) : historyError ? (
+					<div className="flex flex-1 w-full items-center justify-center p-4">
+						<Alert>
+							<TriangleAlert />
+							<AlertTitle>{t('chat.historyLoadFailed')}</AlertTitle>
+							<AlertDescription>
+								{t('chat.historyLoadFailedDescription')}
+							</AlertDescription>
+							{onReloadHistory && (
+								<AlertAction>
+									<Button variant="outline" size="sm" onClick={onReloadHistory}>
+										{t('chat.reloadHistory')}
+									</Button>
+								</AlertAction>
+							)}
+						</Alert>
+					</div>
+				) : isEmpty ? (
+					<span className="text-center text-4xl font-light tracking-[-0.035em] text-foreground mb-2">
+						{t('chat.greeting')}
+					</span>
+				) : (
+					<MessageScrollerProvider
+						key={inputScope}
+						autoScroll={true}
+						defaultScrollPosition={'end'}
 					>
-						{toConfirmedToolCalls.length > 0 ? (
-							<ConfirmCard
-								key={`${toConfirmedToolCalls[0].replyId}:${toConfirmedToolCalls[0].toolCall.id}`}
-								toolCall={toConfirmedToolCalls[0].toolCall}
-								onUserConfirm={(confirm, rules) =>
-									onUserConfirm(
-										toConfirmedToolCalls[0].toolCall,
-										confirm,
-										toConfirmedToolCalls[0].replyId,
-										rules,
-									)
-								}
-							/>
-						) : (
-							footerSlot
-						)}
-					</FlipCard>
-					{/* Concentric radii: the pill stays rounded-[28px] on all four
+						<MessageScroller>
+							<MessageScrollerViewport>
+								<MessageScrollerContent>
+									{msgs.map((message, index) => {
+										const previous = msgs[index - 1];
+										const at = new Date(message.created_at);
+										const previousAt = previous
+											? new Date(previous.finished_at ?? previous.created_at)
+											: at;
+										return (
+											<MessageScrollerItem
+												key={`${inputScope}:${message.id}`}
+												messageId={message.id}
+											>
+												{at.getTime() - previousAt.getTime() >
+													TIME_MARKER_GAP_MS && (
+													<Marker
+														variant="separator"
+														className="mb-6 font-mono text-xs"
+													>
+														<MarkerContent>
+															{markerStamp(
+																at,
+																previousAt,
+																i18n.language,
+															)}
+														</MarkerContent>
+													</Marker>
+												)}
+												<ASMessageBubble
+													agentId={agentId}
+													sessionId={sessionId}
+													message={message}
+													onUserConfirm={onUserConfirm}
+												/>
+											</MessageScrollerItem>
+										);
+									})}
+									{msgs.length > 0 &&
+										msgs[msgs.length - 1].finished_reason ===
+											ReplyFinishedReason.EXCEED_MAX_ITERS &&
+										phase === 'idle' && (
+											<Alert
+												variant={'default'}
+												className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50"
+											>
+												<TriangleAlert />
+												<AlertTitle>
+													{t('chat.maxItersExceeded.title')}
+												</AlertTitle>
+												<AlertDescription>
+													{t('chat.maxItersExceeded.description')}
+												</AlertDescription>
+												<AlertAction>
+													<Button
+														size={'xs'}
+														onClick={() => {
+															onSend([
+																{
+																	id: crypto.randomUUID(),
+																	type: 'text',
+																	text: t(
+																		'chat.maxItersExceeded.continue',
+																	),
+																	created_at:
+																		new Date().toISOString(),
+																	finished_at:
+																		new Date().toISOString(),
+																} as TextBlock,
+															]);
+														}}
+													>
+														{t('chat.maxItersExceeded.continue')}
+													</Button>
+												</AlertAction>
+											</Alert>
+										)}
+								</MessageScrollerContent>
+							</MessageScrollerViewport>
+							<MessageScrollerButton className="rounded-full" />
+						</MessageScroller>
+					</MessageScrollerProvider>
+				)}
+
+				{loading ? null : (
+					<div className="relative min-w-full max-w-full w-full">
+						<FlipCard
+							visible={toConfirmedToolCalls.length > 0 || footerSlot !== null}
+							className="absolute bottom-full left-0 right-0 mb-2 z-50"
+						>
+							{toConfirmedToolCalls.length > 0 ? (
+								<ConfirmCard
+									key={`${toConfirmedToolCalls[0].replyId}:${toConfirmedToolCalls[0].toolCall.id}`}
+									toolCall={toConfirmedToolCalls[0].toolCall}
+									onUserConfirm={(confirm, rules) =>
+										onUserConfirm(
+											toConfirmedToolCalls[0].toolCall,
+											confirm,
+											toConfirmedToolCalls[0].replyId,
+											rules,
+										)
+									}
+								/>
+							) : (
+								footerSlot
+							)}
+						</FlipCard>
+						{/* Concentric radii: the pill stays rounded-[28px] on all four
 				    corners and floats on this surface, whose own radius is
 				    28 + the 4px padding. Matching them is what keeps the two
 				    edges parallel — a plain rectangle here would show the
 				    pill's corners cutting into it. */}
-					<TextInput
-						key={inputScope}
-						ref={inputRef}
-						draftScope={inputScope}
-						className="min-w-full max-w-full w-full rounded-[32px] bg-muted p-1"
-						onSend={onSend}
-						disabled={disabled}
-						autoComplete={autoComplete}
-						allowedInputTypes={allowedInputTypes}
-						fileProcessor={fileProcessor}
-						phase={phase}
-						onInterrupt={onInterrupt}
-						voiceState={voiceState}
-						onVoiceToggle={onVoiceToggle}
-						voiceDisabled={voiceDisabled}
-						headerSlot={
-							<div className="flex w-full items-center justify-between px-2 py-1 text-sm text-muted-foreground">
-								<WorkingDirectoryDialog
-									agentId={agentId}
-									sessionId={sessionId}
-									value={cwd}
-									onChange={onCwdChange}
-								/>
-								{git && (
-									<Button
-										className="font-mono"
-										variant="secondary"
-										size="sm"
-										onClick={() => void onRefreshGit?.()}
-										title={t('workdir.gitTooltip', {
-											staged: git.staged,
-											unstaged: git.unstaged,
-											untracked: git.untracked,
-										})}
-									>
-										<GitBranch />
-										{/* A detached HEAD has no branch to name, so
+						<TextInput
+							key={inputScope}
+							ref={inputRef}
+							draftScope={inputScope}
+							className="min-w-full max-w-full w-full rounded-[32px] bg-muted p-1"
+							onSend={onSend}
+							disabled={disabled}
+							autoComplete={autoComplete}
+							allowedInputTypes={allowedInputTypes}
+							fileProcessor={fileProcessor}
+							phase={phase}
+							onInterrupt={onInterrupt}
+							voiceState={voiceState}
+							onVoiceToggle={onVoiceToggle}
+							voiceDisabled={voiceDisabled}
+							headerSlot={
+								<div className="flex w-full items-center justify-between px-2 py-1 text-sm text-muted-foreground">
+									<WorkingDirectoryDialog
+										agentId={agentId}
+										sessionId={sessionId}
+										value={cwd}
+										onChange={onCwdChange}
+									/>
+									{git && (
+										<Button
+											className="font-mono"
+											variant="secondary"
+											size="sm"
+											onClick={() => void onRefreshGit?.()}
+											tooltip={t('workdir.gitTooltip', {
+												staged: git.staged,
+												unstaged: git.unstaged,
+												untracked: git.untracked,
+											})}
+										>
+											<GitBranch />
+											{/* A detached HEAD has no branch to name, so
 										    fall back to the commit it sits on. The
 										    server sends no git at all when it has
 										    neither. */}
-										{git.branch ?? git.head?.slice(0, 7)}
-										{git.ahead !== null && git.ahead > 0 && (
-											<span className="text-xs">↑{git.ahead}</span>
-										)}
-										{git.behind !== null && git.behind > 0 && (
-											<span className="text-xs">↓{git.behind}</span>
-										)}
-										{/* Renders nothing when both are zero, so a
+											{git.branch ?? git.head?.slice(0, 7)}
+											{git.ahead !== null && git.ahead > 0 && (
+												<span className="text-xs">↑{git.ahead}</span>
+											)}
+											{git.behind !== null && git.behind > 0 && (
+												<span className="text-xs">↓{git.behind}</span>
+											)}
+											{/* Renders nothing when both are zero, so a
 										    clean tree shows just the branch. */}
-										<DiffStats
-											className="text-xs font-mono"
-											insertions={git.insertions}
-											deletions={git.deletions}
-										/>
-									</Button>
-								)}
-							</div>
-						}
-					/>
-				</div>
-			)}
-		</div>
+											<DiffStats
+												className="text-xs font-mono"
+												insertions={git.insertions}
+												deletions={git.deletions}
+											/>
+										</Button>
+									)}
+								</div>
+							}
+						/>
+					</div>
+				)}
+			</div>
 		</AnalysisDraftContext.Provider>
 	);
 };

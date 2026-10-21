@@ -173,7 +173,21 @@ function RowView({ row, onCancel, onDismiss, onDelete, onOpen }: RowViewProps) {
 				<FileText className="text-muted-foreground mt-0.5 size-4 shrink-0" />
 				<div className="flex min-w-0 flex-1 flex-col gap-y-0.5">
 					<div className="flex items-center gap-x-2">
-						<span className="truncate text-sm font-medium">{filename}</span>
+						{openable ? (
+							<Button
+								type="button"
+								variant="ghost"
+								className="h-auto min-w-0 shrink justify-start p-0 hover:bg-transparent"
+								onClick={(event) => {
+									event.stopPropagation();
+									onOpen((row as Extract<Row, { kind: 'server' }>).doc);
+								}}
+							>
+								<span className="truncate text-sm font-medium">{filename}</span>
+							</Button>
+						) : (
+							<span className="truncate text-sm font-medium">{filename}</span>
+						)}
 						<StatusBadge phase={phase} />
 					</div>
 					<div className="text-muted-foreground flex items-center gap-x-2 text-xs">

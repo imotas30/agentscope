@@ -3,6 +3,7 @@ import { Pause, Calendar, ArrowRight, Bot, ClipboardClock, BotOff } from 'lucide
 import { parseCronExpression, getFrequencyLabel } from './schedule-utils';
 import type { ScheduleRecord } from '@/api';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { useTranslation } from '@/i18n/useI18n';
 
@@ -20,7 +21,19 @@ export function ScheduleCard({ schedule, onClick }: ScheduleCardProps) {
 		<Item className="cursor-pointer hover:shadow-md" variant="outline" onClick={onClick}>
 			<ItemMedia variant="icon">{data.enabled ? <Bot /> : <BotOff />}</ItemMedia>
 			<ItemContent>
-				<ItemTitle className="font-[550] truncate max-w-full">{data.name}</ItemTitle>
+				<ItemTitle className="font-[550] truncate max-w-full">
+					<Button
+						type="button"
+						variant="ghost"
+						className="h-auto min-w-0 max-w-full justify-start p-0 text-left whitespace-normal hover:bg-transparent"
+						onClick={(event) => {
+							event.stopPropagation();
+							onClick();
+						}}
+					>
+						{data.name}
+					</Button>
+				</ItemTitle>
 				<ItemDescription className="flex gap-x-2 items-center text-xs truncate overflow-hidden">
 					{!data.enabled && (
 						<Badge variant="secondary" className="gap-1">

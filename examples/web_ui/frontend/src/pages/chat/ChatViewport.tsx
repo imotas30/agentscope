@@ -8,6 +8,7 @@ import {
 	ListTodo,
 	PanelRight,
 	ShieldCheck,
+	Settings2,
 	UsersRound,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -85,6 +86,7 @@ interface ChatViewportProps {
 	 * refetch too; passing this callback wires that signal up.
 	 */
 	onSessionsChanged?: () => void;
+	hasAgentDefaults?: boolean;
 }
 
 /** Maximum number of panels stacked in a single dock column. */
@@ -177,7 +179,12 @@ function closePanelInLayout(layout: PanelKey[][], key: PanelKey): PanelKey[][] {
  *   session is selected yet.
  * @returns The right-side main JSX of the chat page.
  */
-export function ChatViewport({ agentId, sessionId, onSessionsChanged }: ChatViewportProps) {
+export function ChatViewport({
+	agentId,
+	sessionId,
+	onSessionsChanged,
+	hasAgentDefaults,
+}: ChatViewportProps) {
 	const { t } = useTranslation();
 	const analysisQueries = useQueryClient();
 	const { sessions, refetch: refetchSessions } = useSessions(agentId);
@@ -558,7 +565,7 @@ export function ChatViewport({ agentId, sessionId, onSessionsChanged }: ChatView
 			if (card) return card;
 		}
 		return null;
-	}, [groups, selectedModel?.type, selectedModel?.model]);
+	}, [groups, selectedModel]);
 
 	const selectedRealtimeModelCard = useMemo(() => {
 		if (!selectedRealtimeModel) return null;
@@ -575,32 +582,6 @@ export function ChatViewport({ agentId, sessionId, onSessionsChanged }: ChatView
 		}
 		return null;
 	}, [realtimeGroups, selectedRealtimeModel]);
-
-	/**
-	 * Pick the first model the available-models endpoint surfaces, used
-	 * as a sensible default when the current session has no model
-	 * configured yet.
-	 *
-	 * @returns The first available `ChatModelConfig`, or `null` when
-	 *   no credentials / models are configured.
-	 */
-	const getFirstAvailableModel = (): ChatModelConfig | null => {
-		const firstType = Object.keys(groups)[0];
-		if (!firstType) return null;
-		const items = groups[firstType];
-		if (!items || items.length === 0) return null;
-		const firstItem = items[0];
-		const firstModel = (firstItem.models as { name?: string; id?: string }[])[0];
-		if (!firstModel) return null;
-		const modelName = firstModel.name ?? firstModel.id ?? null;
-		if (!modelName) return null;
-		return {
-			type: firstType,
-			credential_id: firstItem.credential.id,
-			model: modelName,
-			parameters: {},
-		};
-	};
 
 	// Seed tasks + permission from the session snapshot ONCE per
 	// session, then leave them to the CustomEvent(name="state_updated")
@@ -628,50 +609,17 @@ export function ChatViewport({ agentId, sessionId, onSessionsChanged }: ChatView
 		setPermissionContext((state?.permission_context as PermissionContext) ?? null);
 	}, [view]);
 
-	// Sync selectedModel + selectedFallbackModel from the session
-	// record. If the session has no model configured yet, auto-pick
-	// the first available one and persist it back so subsequent
-	// reasoning has a model to call.
-	//
-	// Important: skip while `view` is still loading. Otherwise the
-	// in-flight window between "agentId changed" and "useSessions
-	// returned the new list" looks like "session has no model" and
-	// we would racily auto-select + persist the first available
-	// model, clobbering whatever the user had configured.
+	// Resolve model selections from the server; an unconfigured agent stays
+	// unconfigured until the user supplies its default or a session override.
 	useEffect(() => {
 		if (!view) return;
-		const sessionModel = view.session.config.chat_model_config;
-
-		if (sessionModel) {
-			setSelectedModel(sessionModel);
-		} else {
-			const firstModel = getFirstAvailableModel();
-			if (firstModel) {
-				setSelectedModel(firstModel);
-				if (sessionId && agentId) {
-					// `silent` because the user did not ask for this write —
-					// surfacing a toast for a revoked credential or a network
-					// blip they never triggered is pure noise.
-					sessionApi
-						.update(
-							sessionId,
-							agentId,
-							{ chat_model_config: firstModel },
-							{ silent: true },
-						)
-						.then(() => refetchSessions())
-						.catch(() => {});
-				}
-			} else {
-				setSelectedModel(null);
-			}
-		}
+		setSelectedModel(view.session.config.chat_model_config ?? null);
 
 		setSelectedFallbackModel(view.session.config.fallback_chat_model_config ?? null);
 		setSelectedTTSModel(view.session.config.tts_model_config ?? null);
 		setSelectedRealtimeModel(view.session.config.realtime_model_config ?? null);
 		setSelectedKnowledgeConfig(view.session.config.knowledge_config ?? null);
-	}, [view, groups, sessionId, agentId]);
+	}, [view, sessionId, agentId]);
 
 	// Sync selectedPermissionMode when the session changes. Same
 	// loading-window guard as above — don't reset the displayed mode
@@ -857,6 +805,60 @@ export function ChatViewport({ agentId, sessionId, onSessionsChanged }: ChatView
 										disabled={!sessionId || configPending}
 										onChange={handlePermissionModeChange}
 									/>
+									{(hasAgentDefaults ||
+										!!view?.session.config.inherited_fields?.length) && (
+										<DropdownMenu>
+											<DropdownMenuTrigger asChild>
+												<Button
+													variant="ghost"
+													size="icon-sm"
+													aria-label="会话配置来源"
+													tooltip="配置来源：勾选以继承智能体默认值"
+													disabled={!view || configPending || voiceBusy}
+												>
+													<Settings2 className="size-4" />
+												</Button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent align="end" className="w-64">
+												<p className="px-2 py-2 text-xs text-muted-foreground">
+													勾选后继承智能体默认值；取消后保留本会话当前配置。
+												</p>
+												{(
+													[
+														['chat_model_config', '主模型'],
+														['fallback_chat_model_config', '备用模型'],
+														['tts_model_config', '语音合成'],
+														['realtime_model_config', '实时语音'],
+														['knowledge_config', '知识库'],
+														['permission_mode', '工具权限'],
+													] as const
+												).map(([key, label]) => (
+													<DropdownMenuCheckboxItem
+														key={key}
+														checked={view?.session.config.inherited_fields?.includes(
+															key,
+														)}
+														disabled={configPending}
+														onCheckedChange={(inherit) => {
+															if (!view) return;
+															const value =
+																key === 'permission_mode'
+																	? selectedPermissionMode
+																	: view.session.config[key];
+															void patchConfig(
+																inherit
+																	? { inherit_defaults: [key] }
+																	: { [key]: value },
+																() => {},
+															);
+														}}
+													>
+														{label}
+													</DropdownMenuCheckboxItem>
+												))}
+											</DropdownMenuContent>
+										</DropdownMenu>
+									)}
 									<DropdownMenu>
 										<DropdownMenuTrigger asChild>
 											<Button

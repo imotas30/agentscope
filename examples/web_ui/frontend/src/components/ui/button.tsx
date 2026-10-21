@@ -55,7 +55,7 @@ function Button({
 	}) {
 	const Comp = asChild ? Slot.Root : 'button';
 
-	if (tooltip === undefined) {
+	if (!tooltip) {
 		return (
 			<Comp
 				data-slot="button"
@@ -70,13 +70,36 @@ function Button({
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<Comp
-					data-slot="button"
-					data-variant={variant}
-					data-size={size}
-					className={cn(buttonVariants({ variant, size, className }))}
-					{...props}
-				/>
+				{props.disabled ? (
+					<span
+						tabIndex={0}
+						className="inline-flex min-w-0 max-w-full rounded-lg outline-ring has-[>.w-full]:w-full focus-visible:outline-2"
+						aria-label={tooltip}
+					>
+						<Comp
+							data-slot="button"
+							data-variant={variant}
+							data-size={size}
+							className={cn(buttonVariants({ variant, size, className }))}
+							{...props}
+							aria-label={
+								props['aria-label'] ??
+								(size?.startsWith('icon') ? tooltip : undefined)
+							}
+						/>
+					</span>
+				) : (
+					<Comp
+						data-slot="button"
+						data-variant={variant}
+						data-size={size}
+						className={cn(buttonVariants({ variant, size, className }))}
+						{...props}
+						aria-label={
+							props['aria-label'] ?? (size?.startsWith('icon') ? tooltip : undefined)
+						}
+					/>
+				)}
 			</TooltipTrigger>
 			<TooltipContent>{tooltip}</TooltipContent>
 		</Tooltip>

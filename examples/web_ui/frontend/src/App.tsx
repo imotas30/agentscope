@@ -1,37 +1,29 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Onborda, OnbordaProvider } from 'onborda';
-import { useMemo, useState } from 'react';
-import { createBrowserRouter, Navigate, RouterProvider, useNavigate } from 'react-router-dom';
-import { Toaster } from 'sonner';
+import { useMemo } from 'react';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 
 import { MCPHubPage } from './pages/mcp';
 import { SkillHubPage } from './pages/skill';
+import { BrowserBranding } from '@/components/brand/BrowserBranding';
 import { RouteError } from '@/components/error/RouteError';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { buildChatTour } from '@/components/tour/chatTourSteps';
 import { TourCard } from '@/components/tour/TourCard';
+import { Toaster } from '@/components/ui/sonner';
+import { AuthGate } from '@/context/AuthContext';
 import { UploadProvider } from '@/context/UploadContext';
 import { useTranslation } from '@/i18n/useI18n';
 import { queryClient } from '@/lib/query-client';
+import { AccountPage } from '@/pages/account';
+import { AgentsPage, AgentEditorPage } from '@/pages/agents';
+import { AnalysisPreviewPage } from '@/pages/analysis-preview';
 import { ChannelPage } from '@/pages/channel';
 import { ChatPage } from '@/pages/chat';
 import { CredentialPage } from '@/pages/credential';
 import { KnowledgePage } from '@/pages/knowledge';
 import { SchedulePage } from '@/pages/schedule';
-import { SetupPage } from '@/pages/setup';
-import { AnalysisPreviewPage } from '@/pages/analysis-preview';
-
-function SetupPageRoute() {
-	const navigate = useNavigate();
-	return (
-		<>
-			<div className="h-screen">
-				<SetupPage onComplete={() => navigate('/')} />
-			</div>
-			<Toaster richColors position="top-right" />
-		</>
-	);
-}
+import { UsersPage } from '@/pages/users';
 
 const router = createBrowserRouter([
 	{
@@ -51,7 +43,14 @@ const router = createBrowserRouter([
 						element: <ChatPage />,
 					},
 					{ path: '/schedule', element: <SchedulePage /> },
-					{ path: '/analysis-preview/:agentId/:sessionId/:previewRef', element: <AnalysisPreviewPage /> },
+					{ path: '/agents', element: <AgentsPage /> },
+					{ path: '/agents/:agentId', element: <AgentEditorPage /> },
+					{ path: '/account', element: <AccountPage /> },
+					{ path: '/admin/users', element: <UsersPage /> },
+					{
+						path: '/analysis-preview/:agentId/:sessionId/:previewRef',
+						element: <AnalysisPreviewPage />,
+					},
 					{ path: '/channel', element: <ChannelPage /> },
 					{ path: '/credential', element: <CredentialPage /> },
 					{ path: '/mcp', element: <MCPHubPage /> },
@@ -64,33 +63,32 @@ const router = createBrowserRouter([
 			},
 		],
 	},
-	{ path: '/setup', element: <SetupPageRoute />, errorElement: <RouteError /> },
+	{ path: '/setup', element: <Navigate to="/account" replace /> },
+	{ path: '/login', element: <Navigate to="/chat" replace /> },
 ]);
 
 function App() {
 	const { t } = useTranslation();
-	const [setupComplete, setSetupComplete] = useState(() => !!localStorage.getItem('server_url'));
 	const tours = useMemo(() => [buildChatTour(t)], [t]);
-
-	if (!setupComplete) {
-		return <SetupPage onComplete={() => setSetupComplete(true)} />;
-	}
 
 	return (
 		<QueryClientProvider client={queryClient}>
-			<OnbordaProvider>
-				<Onborda
-					steps={tours}
-					cardComponent={TourCard}
-					shadowOpacity="0.6"
-					cardTransition={{ type: 'spring', duration: 0.4 }}
-				>
-					<UploadProvider>
-						<RouterProvider router={router} />
-					</UploadProvider>
-					<Toaster richColors position="top-right" />
-				</Onborda>
-			</OnbordaProvider>
+			<BrowserBranding />
+			<AuthGate>
+				<OnbordaProvider>
+					<Onborda
+						steps={tours}
+						cardComponent={TourCard}
+						shadowOpacity="0.6"
+						cardTransition={{ type: 'spring', duration: 0.4 }}
+					>
+						<UploadProvider>
+							<RouterProvider router={router} />
+						</UploadProvider>
+						<Toaster richColors position="top-right" />
+					</Onborda>
+				</OnbordaProvider>
+			</AuthGate>
 		</QueryClientProvider>
 	);
 }

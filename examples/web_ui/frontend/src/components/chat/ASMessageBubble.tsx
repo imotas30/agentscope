@@ -53,7 +53,7 @@ import {
 import { Message, MessageFooter, MessageContent } from '@/components/ui/message';
 import { useAudioBlock, useReplayController } from '@/context/AudioContext';
 import { useTranslation } from '@/i18n/useI18n';
-import { registeredAnalyses } from '@/lib/analysis-deliveries';
+import { finalAnalysisDeliveries, registeredAnalyses } from '@/lib/analysis-deliveries';
 import { replyErrorKey } from '@/lib/reply-diagnostics';
 import { presentReply } from '@/lib/reply-presentation';
 import { cn } from '@/lib/utils';
@@ -275,20 +275,21 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 
 	return (
 		<>
-			<button
+			<Button
+				variant="ghost"
 				type="button"
 				onClick={toggle}
 				aria-label={
 					isPlaying ? t('messageBubble.pauseAudio') : t('messageBubble.playAudio')
 				}
-				className="ml-1 inline-flex cursor-pointer items-center transition-opacity hover:opacity-70"
+				className="h-auto justify-start p-0 whitespace-normal ml-1 inline-flex cursor-pointer items-center transition-opacity hover:opacity-70"
 			>
 				{isPlaying ? (
 					<AudioWave isPlaying className="size-3" />
 				) : (
 					<CirclePlay className="size-3" />
 				)}
-			</button>
+			</Button>
 			<audio
 				ref={audioRef}
 				src={src}
@@ -451,8 +452,14 @@ function ASMessageBubbleComponent({ message, agentId, sessionId }: MessageBubble
 	);
 
 	const presentation = useMemo(() => presentReply(message), [message]);
-	const analyses = useMemo(() => agentId && sessionId ? registeredAnalyses(message) : [], [message, agentId, sessionId]);
-	const deliveredPaths = useMemo(() => analyses.map((item) => item.path), [analyses]);
+	const analysisDeliveries = useMemo(
+		() => (agentId && sessionId ? registeredAnalyses(message) : []),
+		[message, agentId, sessionId],
+	);
+	const analyses = useMemo(() => finalAnalysisDeliveries(message, analysisDeliveries), [message, analysisDeliveries]);
+	// Suppress standalone model links for every registered revision, including
+	// superseded ones, so Markdown cannot reintroduce a second final card.
+	const deliveredPaths = useMemo(() => analysisDeliveries.map((item) => item.path), [analysisDeliveries]);
 	const hasProcess = !isUser && presentation.process.length > 0;
 	const blocks = groupToolCalls(presentation.answer);
 
@@ -470,91 +477,154 @@ function ASMessageBubbleComponent({ message, agentId, sessionId }: MessageBubble
 
 	return (
 		<DeliveredAnalysisPathsContext.Provider value={deliveredPaths}>
-		<Message align={isUser ? 'end' : 'start'} data-role={message.role}>
-			<MessageContent>
-				{hasProcess && <ReplyProcess
-					message={message}
-					presentation={presentation}
-					elapsed={elapsedText}
-					running={isRunning}
-					steps={presentation.steps.map((block) => <ASBlock key={block.id} agentId={agentId} sessionId={sessionId} block={block} />)}
-					details={groupToolCalls(presentation.process).map((block, index) => <ASBlock key={block.type === 'tool_call_group' ? `tools-${index}` : block.id} agentId={agentId} sessionId={sessionId} block={block} />)}
-				/>}
-				{presentation.pending && <p role="status" className="text-sm text-muted-foreground">{t(`replyProcess.${presentation.pending}Notice`)}</p>}
-				{blocks
-					.filter((block) => block.type !== 'data')
-					.map((block, index) => (
-						<Bubble key={index} variant={isUser ? 'muted' : 'ghost'}>
-							<BubbleContent>
-								<ASBlock agentId={agentId} sessionId={sessionId} block={block} />
-							</BubbleContent>
-						</Bubble>
-					))}
-				{agentId && sessionId && analyses.map((analysis) => <WorkspaceAnalysis key={analysis.path} path={analysis.path} workspace={{ agentId, sessionId }} />)}
-				{message.finished_reason === ReplyFinishedReason.ERROR && (
-					<Alert
-						variant="destructive"
-						className="m-2 w-[calc(100%-1rem)] border-red-200 bg-red-50 text-destructive dark:border-red-900 dark:bg-red-950 dark:text-red-50"
-					>
-						<TriangleAlert />
-						<AlertTitle>{t('messageBubble.error.title')}</AlertTitle>
-						<AlertDescription>
-							{t(`messageBubble.error.${replyErrorKey(message.error)}`, {
-								defaultValue:
-									message.error?.message ?? t('messageBubble.error.unknown'),
-							})}
-							<ModelFailureDetails error={message.error} />
-						</AlertDescription>
-					</Alert>
-				)}
-				{message.finished_reason === ReplyFinishedReason.INTERRUPTED && <p role="status" className="text-sm text-muted-foreground">{t('replyProcess.interruptedNotice')}</p>}
-				{!isUser && !isRunning && message.finished_reason === ReplyFinishedReason.COMPLETED && presentation.answer.length === 0 && analyses.length === 0 && <p className="text-sm text-muted-foreground">{t('replyProcess.noAnswer')}</p>}
-				<AttachmentGroup className="max-w-full">
+			<Message align={isUser ? 'end' : 'start'} data-role={message.role}>
+				<MessageContent>
+					{hasProcess && (
+						<ReplyProcess
+							message={message}
+							presentation={presentation}
+							elapsed={elapsedText}
+							running={isRunning}
+							steps={presentation.steps.map((block) => (
+								<ASBlock
+									key={block.id}
+									agentId={agentId}
+									sessionId={sessionId}
+									block={block}
+								/>
+							))}
+							details={groupToolCalls(presentation.process).map((block, index) => (
+								<ASBlock
+									key={
+										block.type === 'tool_call_group'
+											? `tools-${index}`
+											: block.id
+									}
+									agentId={agentId}
+									sessionId={sessionId}
+									block={block}
+								/>
+							))}
+						/>
+					)}
+					{presentation.pending && (
+						<p role="status" className="text-sm text-muted-foreground">
+							{t(`replyProcess.${presentation.pending}Notice`)}
+						</p>
+					)}
 					{blocks
-						.filter((block) => block.type === 'data')
+						.filter((block) => block.type !== 'data')
 						.map((block, index) => (
-							<ASBlock agentId={agentId} sessionId={sessionId} block={block} key={index} />
+							<Bubble key={index} variant={isUser ? 'muted' : 'ghost'}>
+								<BubbleContent>
+									<ASBlock
+										agentId={agentId}
+										sessionId={sessionId}
+										block={block}
+									/>
+								</BubbleContent>
+							</Bubble>
 						))}
-				</AttachmentGroup>
-				{message.role === 'user' ? (
-					plainText && (
-						<MessageFooter>
-							<CopyButton text={plainText} />
-						</MessageFooter>
-					)
-				) : (
-					<MessageFooter className="gap-1 font-mono">
-						{(!hasProcess || hasUsage || audioBlocks.length > 0) && <Badge
-							variant="secondary"
-							aria-label={isRunning ? t('messageBubble.running') : undefined}
+					{agentId &&
+						sessionId &&
+						analyses.map((analysis) => (
+							<WorkspaceAnalysis
+								key={analysis.path}
+								path={analysis.path}
+								workspace={{ agentId, sessionId }}
+							/>
+						))}
+					{message.finished_reason === ReplyFinishedReason.ERROR && (
+						<Alert
+							variant="destructive"
+							className="m-2 w-[calc(100%-1rem)] border-red-200 bg-red-50 text-destructive dark:border-red-900 dark:bg-red-950 dark:text-red-50"
 						>
-							{!hasProcess && (isRunning ? (
-								<Loader2 data-icon="inline-start" className="animate-spin" />
-							) : (
-								<CheckCircle data-icon="inline-start" />
+							<TriangleAlert />
+							<AlertTitle>{t('messageBubble.error.title')}</AlertTitle>
+							<AlertDescription>
+								{t(`messageBubble.error.${replyErrorKey(message.error)}`, {
+									defaultValue:
+										message.error?.message ?? t('messageBubble.error.unknown'),
+								})}
+								<ModelFailureDetails error={message.error} />
+							</AlertDescription>
+						</Alert>
+					)}
+					{message.finished_reason === ReplyFinishedReason.INTERRUPTED && (
+						<p role="status" className="text-sm text-muted-foreground">
+							{t('replyProcess.interruptedNotice')}
+						</p>
+					)}
+					{!isUser &&
+						!isRunning &&
+						message.finished_reason === ReplyFinishedReason.COMPLETED &&
+						presentation.answer.length === 0 &&
+						analyses.length === 0 && (
+							<p className="text-sm text-muted-foreground">
+								{t('replyProcess.noAnswer')}
+							</p>
+						)}
+					<AttachmentGroup className="max-w-full">
+						{blocks
+							.filter((block) => block.type === 'data')
+							.map((block, index) => (
+								<ASBlock
+									agentId={agentId}
+									sessionId={sessionId}
+									block={block}
+									key={index}
+								/>
 							))}
-							{!hasProcess && <span className="tabular-nums tracking-tighter">{elapsedText}</span>}
-							{hasUsage && (
-								<>
-									<ArrowUp data-icon="inline-start" className="ml-1" />
-									<span className="tabular-nums">
-										{formatNumber(message.usage?.input_tokens ?? 0)}
-									</span>
-									<ArrowDown data-icon="inline-start" className="ml-1" />
-									<span className="tabular-nums">
-										{formatNumber(message.usage?.output_tokens ?? 0)}
-									</span>
-								</>
+					</AttachmentGroup>
+					{message.role === 'user' ? (
+						plainText && (
+							<MessageFooter>
+								<CopyButton text={plainText} />
+							</MessageFooter>
+						)
+					) : (
+						<MessageFooter className="gap-1 font-mono">
+							{(!hasProcess || hasUsage || audioBlocks.length > 0) && (
+								<Badge
+									variant="secondary"
+									aria-label={isRunning ? t('messageBubble.running') : undefined}
+								>
+									{!hasProcess &&
+										(isRunning ? (
+											<Loader2
+												data-icon="inline-start"
+												className="animate-spin"
+											/>
+										) : (
+											<CheckCircle data-icon="inline-start" />
+										))}
+									{!hasProcess && (
+										<span className="tabular-nums tracking-tighter">
+											{elapsedText}
+										</span>
+									)}
+									{hasUsage && (
+										<>
+											<ArrowUp data-icon="inline-start" className="ml-1" />
+											<span className="tabular-nums">
+												{formatNumber(message.usage?.input_tokens ?? 0)}
+											</span>
+											<ArrowDown data-icon="inline-start" className="ml-1" />
+											<span className="tabular-nums">
+												{formatNumber(message.usage?.output_tokens ?? 0)}
+											</span>
+										</>
+									)}
+									{audioBlocks.map((block) => (
+										<AudioInlineControl key={block.id} block={block} />
+									))}
+								</Badge>
 							)}
-							{audioBlocks.map((block) => (
-								<AudioInlineControl key={block.id} block={block} />
-							))}
-						</Badge>}
-						{plainText && <CopyButton text={plainText} />}
-					</MessageFooter>
-				)}
-			</MessageContent>
-		</Message>
+							{plainText && <CopyButton text={plainText} />}
+						</MessageFooter>
+					)}
+				</MessageContent>
+			</Message>
 		</DeliveredAnalysisPathsContext.Provider>
 	);
 }
@@ -591,10 +661,13 @@ function ThinkingBlockView({ block }: { block: ThinkingBlock }) {
 	return (
 		<Collapsible>
 			<CollapsibleTrigger asChild>
-				<div
+				<Button
+					type="button"
+					variant="ghost"
 					className={cn(
+						'h-auto justify-start p-0 whitespace-normal hover:bg-transparent',
 						'group w-full flex items-center gap-2 text-left text-sm text-muted-foreground cursor-pointer',
-						isRunning && 'shimmer',
+						isRunning && '[&>span]:shimmer',
 					)}
 				>
 					<span>
@@ -606,7 +679,7 @@ function ThinkingBlockView({ block }: { block: ThinkingBlock }) {
 						)}
 					</span>
 					<ChevronRight className="hidden group-hover:flex group-data-[state=open]:flex size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-				</div>
+				</Button>
 			</CollapsibleTrigger>
 			<CollapsibleContent asChild>
 				<Markdown
@@ -633,7 +706,13 @@ export function ASBlock({ block, agentId, sessionId, ...props }: ASBlockProps) {
 	switch (block.type) {
 		case 'text':
 			return (
-				<ReportMarkdown agentId={agentId} sessionId={sessionId} animated isAnimating={!block.finished_at} {...props}>
+				<ReportMarkdown
+					agentId={agentId}
+					sessionId={sessionId}
+					animated
+					isAnimating={!block.finished_at}
+					{...props}
+				>
 					{block.text}
 				</ReportMarkdown>
 			);
@@ -742,15 +821,18 @@ export function ASBlock({ block, agentId, sessionId, ...props }: ASBlockProps) {
 			return (
 				<Collapsible>
 					<CollapsibleTrigger asChild>
-						<div
+						<Button
+							type="button"
+							variant="ghost"
 							className={cn(
+								'h-auto justify-start p-0 whitespace-normal hover:bg-transparent',
 								'group w-full flex gap-2 items-center text-sm text-muted-foreground cursor-pointer hover:text-primary',
-								!block.finished_at && 'shimmer',
+								!block.finished_at && '[&>span]:shimmer',
 							)}
 						>
 							<span>{hintLabel + (hintSublabel ? ` - ${hintSublabel}` : '')}</span>
 							<ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-						</div>
+						</Button>
 					</CollapsibleTrigger>
 					<CollapsibleContent className="bg-muted p-2 rounded text-sm">
 						{items.map((item, index) => (
@@ -768,16 +850,19 @@ export function ASBlock({ block, agentId, sessionId, ...props }: ASBlockProps) {
 			return (
 				<Collapsible defaultOpen={false}>
 					<CollapsibleTrigger asChild>
-						<div
+						<Button
+							type="button"
+							variant="ghost"
 							className={cn(
+								'h-auto justify-start p-0 whitespace-normal hover:bg-transparent',
 								'group w-full flex gap-2 items-center text-sm text-muted-foreground cursor-pointer hover:text-primary',
-								hasRunningCall && 'shimmer',
+								hasRunningCall && '[&>span]:shimmer',
 							)}
 						>
 							<span>{title}</span>
 							<ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
 							<DiffStats insertions={insertions} deletions={deletions} />
-						</div>
+						</Button>
 					</CollapsibleTrigger>
 					<CollapsibleContent className="flex flex-col w-full gap-y-1 bg-muted p-2 rounded text-sm text-muted-foreground">
 						{block.calls.map((pair) => renderToolCall(pair, t))}

@@ -50,7 +50,11 @@ function TruncatedCode({ value }: { value: string }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<span ref={ref} className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+				<span
+					ref={ref}
+					tabIndex={truncated ? 0 : undefined}
+					className="min-w-0 flex-1 truncate text-left font-mono text-xs outline-ring focus-visible:outline-2"
+				>
 					{value}
 				</span>
 			</TooltipTrigger>

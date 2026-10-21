@@ -41,6 +41,25 @@ test('images and delivered report/analysis cards survive later tool calls', () =
 	assert.deepEqual(ids(presentReply(value).answer), ['report', 'analysis', 'image', 'answer']);
 });
 
+test('completion revision hides rejected prose and cards while preserving process history', () => {
+	const draft = text('old', `错误结论 [结果](./analysis/ana_${'a'.repeat(32)}/revisions/1/analysis.json)`);
+	const hint = { type: 'hint', id: 'review', source: JSON.stringify({ label: 'System', sublabel: 'Completion check' }), hint: '修正' };
+	const value = message([draft, hint, text('corrected', '[结果](./reports/corrected.html)')], {
+		metadata: { presentation: { answer_block_ids: ['old', 'corrected'] } },
+	});
+	const before = structuredClone(value);
+	assert.deepEqual(ids(presentReply(value).answer), ['corrected']);
+	assert.deepEqual(ids(presentReply(value).process), ['old', 'review']);
+	assert.deepEqual(value, before);
+});
+
+test('text-only streaming correction resets the draft but unrelated hints do not', () => {
+	const hint = { type: 'hint', id: 'review', source: JSON.stringify({ label: 'System', sublabel: 'Completion check' }), hint: '修正' };
+	assert.deepEqual(ids(presentReply(message([text('old'), hint])).answer), []);
+	assert.deepEqual(ids(presentReply(message([text('old'), hint, text('new')])).answer), ['new']);
+	assert.deepEqual(ids(presentReply(message([text('old'), {...hint, source:'unrelated'}, text('new')])).answer), ['old', 'new']);
+});
+
 test('tool output cannot become a user-facing report card', () => {
 	const value = message([call('c'), { ...result('c'), output: [text('link', '[报告](./reports/example.html)')] }]);
 	assert.deepEqual(presentReply(value).answer, []);
@@ -88,6 +107,29 @@ test('terminal event metadata survives live assembly and a history round trip', 
 	assert.deepEqual(ids(presentReply(JSON.parse(JSON.stringify(value))).answer), ['a']);
 	applyReplyPresentation(value, { type: 'REPLY_END', reply_id: 'another-reply', metadata: { presentation: { answer_block_ids: [] } } });
 	assert.deepEqual(ids(presentReply(value).answer), ['a']);
+});
+
+test('completion verdict is carried independently of presentation and scoped to its reply', () => {
+	const value = message([text('answer')], { metadata: { keep: true } });
+	const metadata = { analysisCompletion: { status: 'INCOMPLETE', analysisRef: 'fixture:1', semanticReview: 'REVISE' } };
+	applyReplyPresentation(value, { type: 'REPLY_END', reply_id: 'another', metadata });
+	assert.deepEqual(value.metadata, { keep: true });
+	applyReplyPresentation(value, { type: 'TEXT', reply_id: 'reply', metadata });
+	assert.deepEqual(value.metadata, { keep: true });
+	applyReplyPresentation(value, { type: 'REPLY_END', reply_id: 'reply', metadata });
+	metadata.analysisCompletion.status = 'READY';
+	assert.equal(value.metadata.analysisCompletion.status, 'INCOMPLETE', 'Keep a detached terminal snapshot');
+	assert.deepEqual(JSON.parse(JSON.stringify(value)).metadata, { keep: true, analysisCompletion: { status: 'INCOMPLETE', analysisRef: 'fixture:1', semanticReview: 'REVISE' } });
+});
+
+test('terminal metadata preserves arbitrary middleware values and replaces whole verdicts', () => {
+	const value = message([], { metadata: { keep: true, extensionReview: { oldRef: 'old' } } });
+	const metadata = { extensionReview: { status: 'incomplete', references: ['source'] } };
+	applyReplyPresentation(value, { type: 'REPLY_END', reply_id: 'reply', metadata });
+	metadata.extensionReview.references.push('later mutation');
+	assert.deepEqual(value.metadata, { keep: true, extensionReview: { status: 'incomplete', references: ['source'] } });
+	applyReplyPresentation(value, { type: 'REPLY_END', reply_id: 'reply', metadata: { extensionReview: null } });
+	assert.deepEqual(value.metadata, { keep: true, extensionReview: null });
 });
 
 test('missing and malformed metadata degrade to readable output', () => {

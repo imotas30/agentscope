@@ -242,7 +242,7 @@ export const KnowledgePage = () => {
 								variant="ghost"
 								size="icon-xs"
 								onClick={() => setCreateDialogOpen(true)}
-								title={t('knowledge.list.createButton')}
+								tooltip={t('knowledge.list.createButton')}
 							>
 								<Plus className="size-3.5" />
 							</Button>

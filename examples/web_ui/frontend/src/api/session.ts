@@ -99,8 +99,8 @@ export const sessionApi = {
 	 * open until the caller aborts via the ``signal`` or closes the
 	 * generator.
 	 *
-	 * Uses fetch-based SSE (not native ``EventSource``) so the
-	 * ``X-User-ID`` custom header is sent.
+	 * Uses fetch-based SSE with the shared authenticated client so
+	 * logout and session expiration cancel the stream consistently.
 	 *
 	 * @param sessionId - The session to subscribe to.
 	 * @param agentId - The agent that owns the session.

@@ -170,9 +170,11 @@ export function ScheduleDetailDrawer({
 								)}
 								{!sessionsLoading &&
 									sessions.map((session) => (
-										<div
+										<Button
+											type="button"
+											variant="ghost"
 											key={session.id}
-											className="flex flex-row justify-between text-xs px-2.5 py-2 font-mono rounded-md ring ring-border items-center cursor-pointer hover:bg-muted/50 transition-colors"
+											className="h-auto w-full justify-between text-xs px-2.5 py-2 font-mono rounded-md ring ring-border hover:bg-muted/50"
 											onClick={() => {
 												navigate(
 													`/chat/${schedule.agent_id}/${session.id}`,
@@ -184,7 +186,7 @@ export function ScheduleDetailDrawer({
 												{new Date(session.created_at).toLocaleString()}
 											</span>
 											<StatusBadge status="completed" />
-										</div>
+										</Button>
 									))}
 							</div>
 						</div>

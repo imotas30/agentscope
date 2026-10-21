@@ -1,4 +1,4 @@
-import { ApiError, client, getBaseUrl } from './client';
+import { ApiError, client, apiUrl } from './client';
 import { ANALYSIS_VIEW_MAX_BYTES, parseDelivery, parseSnapshot, parseActionResolution, type ExportDelivery, type ViewParameters } from '@/lib/workspace-analysis';
 import { REPORT_PREVIEW_MAX_BYTES } from '@/lib/workspace-reports';
 
@@ -70,7 +70,7 @@ export const analysisApi = {
 		const query = { ...params(w), analysis_ref: ref.analysisRef, export_ref: ref.exportRef };
 		const response = await client.stream('/workspace/analyses/report-token', { method: 'POST', params: query, signal, silent: true });
 		const token = JSON.parse(await bounded(response, 4096)) as { token: string };
-		const url = new URL('/workspace/analyses/report', getBaseUrl());
+		const url = apiUrl('/workspace/analyses/report');
 		Object.entries({ ...query, token: token.token, download: 'true' }).forEach(([key, value]) => url.searchParams.set(key, value));
 		return url.toString();
 	},

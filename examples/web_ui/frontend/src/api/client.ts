@@ -1,7 +1,10 @@
 import { toast } from 'sonner';
 
-export const getBaseUrl = () => localStorage.getItem('server_url') ?? '';
-export const getUserId = () => localStorage.getItem('username') ?? '';
+import { getAuth, getAuthSignal, getCsrfToken, handleUnauthorized } from './auth-state';
+
+export const getBaseUrl = () => new URL('/api/', window.location.origin).toString();
+export const getUserId = () => getAuth()?.user.id ?? '';
+export const apiUrl = (path: string) => new URL(path.replace(/^\/+/, ''), getBaseUrl());
 
 /**
  * Structured error thrown for non-2xx HTTP responses.
@@ -26,10 +29,6 @@ interface RequestOptions {
 	/** When true, suppresses the automatic error toast. Useful when the caller shows its own inline error UI. */
 	silent?: boolean;
 	signal?: AbortSignal;
-	/** Overrides the stored server URL. Lets the setup page probe an address before persisting it. */
-	baseUrl?: string;
-	/** Overrides the stored username, for the same reason as `baseUrl`. */
-	userId?: string;
 	/** Gives up after this many ms and reports {@link TIMEOUT_STATUS}. Off by default — a streaming chat is meant to stay open. */
 	timeoutMs?: number;
 }
@@ -37,8 +36,8 @@ interface RequestOptions {
 /** Reported when `timeoutMs` elapses. Real 408s come from a server, so either way the request did not complete in time. */
 export const TIMEOUT_STATUS = 408;
 
-function buildHeaders(hasBody: boolean, userId?: string): Record<string, string> {
-	const headers: Record<string, string> = { 'X-User-ID': userId ?? getUserId() };
+function buildHeaders(hasBody: boolean): Record<string, string> {
+	const headers: Record<string, string> = { 'X-CSRF-Token': getCsrfToken() };
 	if (hasBody) headers['Content-Type'] = 'application/json';
 	return headers;
 }
@@ -63,11 +62,9 @@ async function streamRequest(path: string, options: RequestOptions = {}): Promis
 		params,
 		signal,
 		silent = false,
-		baseUrl,
-		userId,
 		timeoutMs,
 	} = options;
-	const url = new URL(path, baseUrl ?? getBaseUrl());
+	const url = apiUrl(path);
 	const multipart = body instanceof FormData;
 	if (params) {
 		Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -76,14 +73,14 @@ async function streamRequest(path: string, options: RequestOptions = {}): Promis
 	// AbortSignal.timeout aborts with a TimeoutError, which is what lets the
 	// catch below tell "too slow" apart from the caller's own cancellation.
 	const deadline = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
-	const combined =
-		deadline && signal ? AbortSignal.any([signal, deadline]) : (deadline ?? signal);
+	const combined = AbortSignal.any([getAuthSignal(), ...(signal ? [signal] : []), ...(deadline ? [deadline] : [])]);
 
 	let res: Response;
 	try {
 		res = await fetch(url.toString(), {
 			method,
-			headers: buildHeaders(body !== undefined && !multipart, userId),
+			headers: buildHeaders(body !== undefined && !multipart),
+			credentials: 'same-origin',
 			body: multipart ? body : body !== undefined ? JSON.stringify(body) : undefined,
 			signal: combined,
 		});
@@ -100,7 +97,7 @@ async function streamRequest(path: string, options: RequestOptions = {}): Promis
 			? new ApiError(TIMEOUT_STATUS, 'The server took too long to respond.')
 			: new ApiError(
 					0,
-					'Cannot reach the server. Check the server address and your network.',
+					'Cannot reach the server. Please check your network or contact the administrator.',
 				);
 		if (!silent) toast.error(error.detail);
 		throw error;
@@ -108,6 +105,7 @@ async function streamRequest(path: string, options: RequestOptions = {}): Promis
 
 	if (!res.ok) {
 		const detail = await extractErrorDetail(res);
+		if (path !== '/auth/login') handleUnauthorized(res.status);
 		const error = new ApiError(res.status, detail);
 		if (!silent) toast.error(detail);
 		throw error;
@@ -128,7 +126,7 @@ export const client = {
 	get: <T>(
 		path: string,
 		params?: Record<string, string>,
-		options?: { silent?: boolean; baseUrl?: string; userId?: string; timeoutMs?: number },
+		options?: { silent?: boolean; timeoutMs?: number },
 	) => request<T>(path, { method: 'GET', params, ...options }),
 	post: <T>(
 		path: string,
@@ -146,3 +144,17 @@ export const client = {
 		request<T>(path, { method: 'DELETE', params }),
 	stream: (path: string, options?: RequestOptions) => streamRequest(path, options),
 };
+
+/** Explicit owner scope used by administrator resource editors only. */
+export function resourceClient(owner?: string): typeof client {
+  if (!owner) return client;
+  const params = (values?: Record<string, string>) => ({ ...values, resource_owner: owner });
+  return {
+    get: (path, values, options) => client.get(path, params(values), options),
+    post: (path, body, values, options) => client.post(path, body, params(values), options),
+    patch: (path, body, values, options) => client.patch(path, body, params(values), options),
+    delete: (path, values) => client.delete(path, params(values)),
+    upload: (path, body, values) => client.upload(path, body, params(values)),
+    stream: (path, options) => client.stream(path, { ...options, params: params(options?.params) }),
+  };
+}

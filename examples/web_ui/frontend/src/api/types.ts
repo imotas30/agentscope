@@ -89,6 +89,9 @@ export interface AgentData {
 	name: string;
 	system_prompt: string;
 	chat_config: ChatConfig;
+	description?: string;
+	defaults?: import('./agent-management').AgentDefaults | null;
+	memory_config?: import('./agent-management').MemoryConfig | null;
 }
 
 export interface AgentView extends RecordBase {
@@ -178,6 +181,7 @@ export type SessionOrigin =
 export type SessionSourceKind = SessionOrigin['type'];
 
 export interface SessionConfig {
+	inherited_fields?: string[];
 	resource_config: SessionResourceConfig;
 	name: string;
 	/** Who owns `name` — see the backend's `SessionNaming`. */
@@ -222,14 +226,15 @@ export interface CreateSessionRequest {
 	resource_config?: SessionResourceConfig;
 	agent_id: string;
 	workspace_id?: string;
+	/** Omit to inherit the Agent default; null explicitly clears the model. */
 	chat_model_config?: ChatModelConfig | null;
-	/** Optional fallback model. Omit (or pass null) for no fallback. */
+	/** Omit to inherit the Agent default; null disables the fallback. */
 	fallback_chat_model_config?: ChatModelConfig | null;
-	/** Optional TTS model. Omit (or pass null) for no TTS. */
+	/** Omit to inherit the Agent default; null disables TTS. */
 	tts_model_config?: TTSModelConfig | null;
-	/** Optional realtime voice model. Omit (or pass null) for none. */
+	/** Omit to inherit the Agent default; null disables realtime voice. */
 	realtime_model_config?: RealtimeModelConfig | null;
-	/** Optional knowledge base attachment. Omit (or null) for none. */
+	/** Omit to inherit the Agent default; null clears knowledge attachments. */
 	knowledge_config?: SessionKnowledgeConfig | null;
 }
 
@@ -242,6 +247,7 @@ export interface InterruptSessionResponse {
 }
 
 export interface UpdateSessionRequest {
+	inherit_defaults?: string[];
 	resource_config?: SessionResourceConfig;
 	name?: string;
 	chat_model_config?: ChatModelConfig;
@@ -1200,8 +1206,8 @@ export interface ListDocumentChunksResponse {
 
 /**
  * Response of `POST /knowledge_bases/{id}/documents/{doc}/download_token`
- * — a short-lived capability for browser-native fetches (`<iframe>`,
- * `<img>`, download links) that cannot carry the `X-User-ID` header.
+ * — a legacy capability for browser-native fetches. With authentication
+ * enabled, downloads also require the current user's session cookie.
  */
 export interface DocumentDownloadTokenResponse {
 	token: string;

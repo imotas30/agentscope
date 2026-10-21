@@ -1,159 +1,107 @@
-import { CircleAlert, Loader2 } from 'lucide-react';
+import { Loader2, Palette } from 'lucide-react';
 import { useState } from 'react';
 
-import { healthApi } from '@/api';
-import { ApiError, TIMEOUT_STATUS } from '@/api/client.ts';
-import type { HealthResponse } from '@/api/types.ts';
-import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
-import { Button } from '@/components/ui/button.tsx';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card.tsx';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
-import { Input } from '@/components/ui/input.tsx';
-import { useTranslation } from '@/i18n/useI18n.ts';
-import { formatApiErrorForAlert } from '@/lib/api-error.ts';
-import { cn } from '@/lib/utils.ts';
+import { authApi } from '@/api/auth';
+import { setAuth } from '@/api/auth-state';
+import { ApiError } from '@/api/client';
+import { AppearanceDialog } from '@/components/appearance/AppearanceSettings';
+import { AgentScopeLogo } from '@/components/brand/AgentScopeLogo';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useBranding } from '@/context/branding';
+import { useTranslation } from '@/i18n/useI18n';
+import { DEFAULT_BRANDING } from '@/lib/branding';
 
-interface Props {
-	onComplete: () => void;
-	className?: string;
-}
-
-/** Pull the failing subsystem names out of a 503 body, if it is a health report. */
-function notReadyComponents(detail: string): string {
-	try {
-		const body = JSON.parse(detail) as HealthResponse;
-		return Object.entries(body.components ?? {})
-			.filter(([, status]) => status === 'not_ready')
-			.map(([name]) => name)
-			.join(', ');
-	} catch {
-		return '';
-	}
-}
-
-export const SetupPage = ({ onComplete, className }: Props) => {
+export function SetupPage() {
 	const { t } = useTranslation();
-	const [url, setUrl] = useState(() => localStorage.getItem('server_url') ?? '');
-	const [username, setUsername] = useState(() => localStorage.getItem('username') ?? '');
-	const [checking, setChecking] = useState(false);
-	const [errorMsg, setErrorMsg] = useState('');
+	const { data: branding = DEFAULT_BRANDING } = useBranding();
+	const [username, setUsername] = useState('');
+	const [password, setPassword] = useState('');
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState('');
 
-	const describeFailure = (e: unknown): string => {
-		if (e instanceof ApiError) {
-			// Status 0 means the request never reached a server at all.
-			if (e.status === 0) return t('setup.errorUnreachable');
-			if (e.status === TIMEOUT_STATUS) return t('setup.errorTimeout');
-			// Something answered, but it has no /health — wrong address, or
-			// a backend too old to have one.
-			if (e.status === 404) return t('setup.errorNotAgentScope');
-			if (e.status === 401 || e.status === 422) return t('setup.errorUnauthorized');
-			if (e.status === 503) {
-				const down = notReadyComponents(e.detail);
-				return down ? `${t('setup.errorNotReady')}\n${down}` : t('setup.errorNotReady');
-			}
-		}
-		// A 200 whose body will not parse as JSON: an SPA dev server or a
-		// catch-all proxy answering with HTML, not our backend.
-		if (e instanceof SyntaxError) return t('setup.errorNotAgentScope');
-		return formatApiErrorForAlert(e);
-	};
-
-	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
-		const trimmedUrl = url.trim().replace(/\/+$/, '');
-		const trimmedName = username.trim();
-
-		setChecking(true);
-		setErrorMsg('');
+	async function submit(event: React.FormEvent) {
+		event.preventDefault();
+		setBusy(true);
+		setError('');
 		try {
-			// Persist only after the backend confirms both the address and
-			// the username work, so a failed attempt cannot leave the app
-			// holding a config that sends every later page into errors.
-			const health = (await healthApi.check(
-				trimmedUrl,
-				trimmedName,
-			)) as Partial<HealthResponse>;
-			// Valid JSON that is not a health report means the address points
-			// at some other service that happens to answer 200.
-			if (typeof health.version !== 'string' || !health.components) {
-				setErrorMsg(t('setup.errorNotAgentScope'));
-				return;
-			}
-			localStorage.setItem('server_url', trimmedUrl);
-			localStorage.setItem('username', trimmedName);
-			onComplete();
-		} catch (err) {
-			setErrorMsg(describeFailure(err));
+			const session = await authApi.login(username.trim(), password);
+			setPassword('');
+			setAuth(session, true);
+		} catch (e) {
+			setError(
+				e instanceof ApiError && e.status === 0
+					? t('auth.unreachable')
+					: e instanceof Error
+						? e.message
+						: t('auth.failed'),
+			);
 		} finally {
-			setChecking(false);
+			setBusy(false);
 		}
-	};
+	}
 
 	return (
-		<div className="flex items-center justify-center h-full">
-			<div className={cn('flex flex-col gap-6 w-full max-w-sm', className)}>
-				<Card>
-					<CardHeader>
-						<CardTitle>{t('setup.title')}</CardTitle>
-						<CardDescription>{t('setup.description')}</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<form onSubmit={handleSubmit}>
-							<FieldGroup>
-								<Field>
-									<FieldLabel htmlFor="server-url-input">
-										{t('setup.serverUrl')}
-									</FieldLabel>
-									<Input
-										id="server-url-input"
-										type="url"
-										placeholder={t('setup.serverUrlPlaceholder')}
-										value={url}
-										onChange={(e) => setUrl(e.target.value)}
-										required
-									/>
-								</Field>
-								<Field>
-									<FieldLabel htmlFor="username-input">
-										{t('setup.username')}
-									</FieldLabel>
-									<Input
-										id="username-input"
-										type="text"
-										placeholder={t('setup.usernamePlaceholder')}
-										value={username}
-										onChange={(e) => setUsername(e.target.value)}
-										required
-									/>
-								</Field>
-								{errorMsg && (
-									<Alert variant="destructive">
-										<CircleAlert />
-										{/* The failing-component list is appended on its
-										    own line, so newlines have to survive. */}
-										<AlertDescription className="whitespace-pre-wrap">
-											{errorMsg}
-										</AlertDescription>
-									</Alert>
-								)}
-								<Field>
-									<Button type="submit" className="w-full" disabled={checking}>
-										{checking && <Loader2 className="size-3.5 animate-spin" />}
-										{checking ? t('setup.checking') : t('setup.submit')}
-									</Button>
-								</Field>
-							</FieldGroup>
-						</form>
-					</CardContent>
-				</Card>
-				<FieldDescription className="px-6 text-center">{t('setup.hint')}</FieldDescription>
+		<main className="relative flex min-h-screen items-center justify-center bg-canvas px-6 py-24">
+			<div className="absolute right-5 top-5">
+				<AppearanceDialog>
+					<Button variant="outline" size="sm">
+						<Palette className="size-4" />
+						{t('appearance.title')}
+					</Button>
+				</AppearanceDialog>
 			</div>
-		</div>
+			<Card className="w-full max-w-sm">
+				<CardHeader className="gap-2">
+					<AgentScopeLogo className="mb-2 size-12" />
+					<CardTitle>{t('auth.loginTitle', { brand: branding.browser_title })}</CardTitle>
+					<CardDescription>{t('auth.loginDescription')}</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<form onSubmit={submit} className="space-y-5">
+						<div className="space-y-2">
+							<Label htmlFor="login-username">{t('auth.username')}</Label>
+							<Input
+								id="login-username"
+								autoComplete="username"
+								autoFocus
+								required
+								maxLength={64}
+								value={username}
+								onChange={(e) => setUsername(e.target.value)}
+								disabled={busy}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="login-password">{t('auth.password')}</Label>
+							<Input
+								id="login-password"
+								type="password"
+								autoComplete="current-password"
+								required
+								maxLength={128}
+								value={password}
+								onChange={(e) => setPassword(e.target.value)}
+								disabled={busy}
+							/>
+						</div>
+						{error && (
+							<p role="alert" className="text-sm text-destructive">
+								{error}
+							</p>
+						)}
+						<Button type="submit" className="w-full" disabled={busy}>
+							{busy && <Loader2 className="size-4 animate-spin" />}
+							{t(busy ? 'auth.loggingIn' : 'auth.login')}
+						</Button>
+						<p className="text-center text-xs text-muted-foreground">
+							{t('auth.contactAdmin')}
+						</p>
+					</form>
+				</CardContent>
+			</Card>
+		</main>
 	);
-};
+}

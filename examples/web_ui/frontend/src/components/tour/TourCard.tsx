@@ -41,13 +41,15 @@ export const TourCard = ({
 			<Card size="sm" className="w-80 shadow-lg">
 				<CardHeader className="flex flex-row items-start justify-between gap-2">
 					<CardTitle>{step.title}</CardTitle>
-					<button
+					<Button
+						variant="ghost"
+						type="button"
 						onClick={handleClose}
-						className="text-muted-foreground hover:text-foreground -mt-1"
+						className="h-auto justify-start p-0 whitespace-normal text-muted-foreground hover:text-foreground -mt-1"
 						aria-label={t('tour.skip')}
 					>
 						<X className="size-4" />
-					</button>
+					</Button>
 				</CardHeader>
 				<CardContent className="text-muted-foreground text-sm leading-relaxed">
 					{step.content}

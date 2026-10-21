@@ -1,5 +1,6 @@
 import {
 	BookText,
+	Bot,
 	BotMessageSquare,
 	Cable,
 	Calendars,
@@ -7,13 +8,16 @@ import {
 	KeyRound,
 	Languages,
 	LibraryBig,
+	Palette,
 	UserRound,
+	Users,
 } from 'lucide-react';
 import { useOnborda } from 'onborda';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-import AgentScope from '@/assets/images/agentscope_mono.svg?react';
 import MCPSvg from '@/assets/images/mcp.svg?react';
+import { AppearanceDialog } from '@/components/appearance/AppearanceSettings';
+import { AgentScopeLogo } from '@/components/brand/AgentScopeLogo';
 import { CHAT_TOUR_NAME } from '@/components/tour/chatTourSteps';
 import {
 	Sidebar,
@@ -26,10 +30,12 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useAuth } from '@/context/AuthContext';
 import i18n from '@/i18n';
 import { useTranslation } from '@/i18n/useI18n';
 
 export function AppSidebar() {
+	const auth = useAuth();
 	const navigate = useNavigate();
 	const location = useLocation();
 	const { t } = useTranslation();
@@ -54,12 +60,10 @@ export function AppSidebar() {
 	return (
 		<Sidebar
 			collapsible="none"
-			className="w-[calc(var(--sidebar-width-icon)+1px)]! bg-transparent"
+			className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r border-sidebar-border bg-sidebar"
 		>
 			<SidebarHeader>
-				<div className="flex items-center justify-center size-8 mt-2 rounded-full bg-primary">
-					<AgentScope className="size-5 items-center justify-center rounded-lg text-primary-foreground" />
-				</div>
+				<AgentScopeLogo className="mt-2" />
 			</SidebarHeader>
 			<SidebarContent>
 				<SidebarGroup>
@@ -77,6 +81,9 @@ export function AppSidebar() {
 								>
 									<BotMessageSquare />
 								</SidebarMenuButton>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<SidebarMenuButton tooltip={{ children: t('common.agentManagement'), hidden: false }} aria-label={t('common.agentManagement')} isActive={location.pathname.startsWith('/agents')} onClick={() => navigate('/agents')} className="justify-center"><Bot /></SidebarMenuButton>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
 								<SidebarMenuButton
@@ -152,6 +159,30 @@ export function AppSidebar() {
 			<SidebarFooter>
 				<SidebarMenu>
 					<SidebarMenuItem>
+						<AppearanceDialog>
+							<SidebarMenuButton
+								tooltip={{ children: t('appearance.title'), hidden: false }}
+								aria-label={t('appearance.title')}
+								className="justify-center"
+							>
+								<Palette />
+							</SidebarMenuButton>
+						</AppearanceDialog>
+					</SidebarMenuItem>
+					{auth?.user.role === 'admin' && (
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								tooltip={{ children: t('auth.usersTitle'), hidden: false }}
+								isActive={location.pathname === '/admin/users'}
+								onClick={() => navigate('/admin/users')}
+								className="justify-center"
+								aria-label={t('auth.usersTitle')}
+							>
+								<Users />
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					)}
+					<SidebarMenuItem>
 						<SidebarMenuButton
 							tooltip={{
 								children: i18n.language.startsWith('zh')
@@ -176,9 +207,10 @@ export function AppSidebar() {
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							tooltip={{ children: t('common.settings'), hidden: false }}
-							isActive={location.pathname === '/setup'}
-							onClick={() => navigate('/setup')}
+							tooltip={{ children: t('auth.account'), hidden: false }}
+							aria-label={t('auth.account')}
+							isActive={location.pathname === '/account'}
+							onClick={() => navigate('/account')}
 							className="justify-center"
 						>
 							<UserRound />

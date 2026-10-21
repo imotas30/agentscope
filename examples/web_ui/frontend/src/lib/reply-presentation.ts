@@ -14,16 +14,25 @@ function answerIds(metadata: unknown): string[] | null {
 /** The installed SDK forwards block metadata, but does not yet keep reply metadata. */
 export function applyReplyPresentation(message: Msg, event: AgentEvent): void {
 	if (event.type !== 'REPLY_END' || event.reply_id !== message.id) return;
-	const ids = answerIds(event.metadata);
-	if (ids !== null) {
-		message.metadata = { ...message.metadata, presentation: { answer_block_ids: [...ids] } };
-	}
+	// Match the server's message aggregation for every reply middleware.
+	// Consumers validate their own metadata instead of losing unknown keys here.
+	// Wire events are JSON; the SDK types their metadata values as unknown.
+	const metadata = structuredClone(event.metadata ?? {}) as Msg['metadata'];
+	message.metadata = { ...message.metadata, ...metadata };
 }
 
 function hasDeliveredCard(block: ContentBlock): boolean {
 	// Keep user-facing result links visible even when a middleware publishes
 	// an artifact before the final model invocation. Never inspect tool output.
 	return block.type === 'text' && /\]\(\.\/(?:[^\s)]+\.html?|analysis\/ana_[\da-f]{32}\/revisions\/[1-9]\d*\/analysis\.json)\)/i.test(block.text);
+}
+
+export function isCompletionRevision(block: ContentBlock): boolean {
+	if (block.type !== 'hint') return false;
+	try {
+		const source = record(JSON.parse(block.source ?? 'null'));
+		return source?.label === 'System' && source.sublabel === 'Completion check';
+	} catch { return false; }
 }
 
 export function pendingCalls(message: Msg): ToolCallBlock[] {
@@ -57,6 +66,9 @@ export function presentReply(message: Msg): ReplyPresentation {
 	const keepPartial = message.finished_reason === 'error' || message.finished_reason === 'interrupted';
 	const lastBoundary = message.content.findLastIndex((block) =>
 		block.type === 'tool_call' || block.type === 'tool_result' || (!keepPartial && block.type === 'thinking'));
+	// A rejected draft remains available in the process, including its card,
+	// but must not survive beside the revised answer as another final result.
+	const lastRevision = message.content.findLastIndex(isCompletionRevision);
 	const process: ContentBlock[] = [];
 	const answer: ContentBlock[] = [];
 	const calls = new Set<string>();
@@ -64,8 +76,9 @@ export function presentReply(message: Msg): ReplyPresentation {
 	const reports = new Map<string, number>();
 	const analyses = new Set<string>();
 	for (const [index, block] of message.content.entries()) {
-		const visible = message.role !== 'assistant' || block.type === 'data' || hasDeliveredCard(block) ||
-			(block.type === 'text' && (selected ? selected.has(block.id) : index > lastBoundary));
+		const visible = message.role !== 'assistant' || (index > lastRevision &&
+			(block.type === 'data' || hasDeliveredCard(block) ||
+				(block.type === 'text' && (selected ? selected.has(block.id) : index > lastBoundary))));
 		(visible ? answer : process).push(block);
 		if (block.type === 'tool_call' || block.type === 'tool_result') calls.add(block.id);
 		if (block.type === 'thinking') thoughts.add(block.id);

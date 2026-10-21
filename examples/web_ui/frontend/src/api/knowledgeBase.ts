@@ -1,4 +1,5 @@
-import { ApiError, client, getBaseUrl, getUserId } from './client';
+import { getAuthSignal, getCsrfToken, handleUnauthorized } from './auth-state';
+import { ApiError, client, apiUrl } from './client';
 import type {
 	CreateKnowledgeBaseRequest,
 	CreateKnowledgeBaseResponse,
@@ -88,7 +89,8 @@ function uploadDocumentXhr(
 	file: File,
 	options: UploadDocumentOptions = {},
 ): Promise<UploadKnowledgeDocumentResponse> {
-	const { onProgress, signal } = options;
+	const { onProgress, signal: callerSignal } = options;
+	const signal = AbortSignal.any([getAuthSignal(), ...(callerSignal ? [callerSignal] : [])]);
 	const formData = new FormData();
 	formData.append('file', file);
 
@@ -99,9 +101,9 @@ function uploadDocumentXhr(
 		}
 
 		const xhr = new XMLHttpRequest();
-		const url = new URL(`/knowledge_bases/${knowledgeBaseId}/documents`, getBaseUrl());
+		const url = apiUrl(`/knowledge_bases/${knowledgeBaseId}/documents`);
 		xhr.open('POST', url.toString(), true);
-		xhr.setRequestHeader('X-User-ID', getUserId());
+		xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
 		const onAbort = () => xhr.abort();
 		signal?.addEventListener('abort', onAbort, { once: true });
@@ -119,6 +121,7 @@ function uploadDocumentXhr(
 
 		xhr.onload = () => {
 			cleanup();
+			handleUnauthorized(xhr.status);
 			if (xhr.status >= 200 && xhr.status < 300) {
 				try {
 					resolve(JSON.parse(xhr.responseText) as UploadKnowledgeDocumentResponse);
@@ -231,9 +234,8 @@ export const knowledgeBaseApi = {
 		),
 
 	/**
-	 * Mint a short-lived token so a browser-native fetch (`<iframe>`,
-	 * `<img>`, a download navigation) can retrieve the raw file
-	 * without the `X-User-ID` header.
+	 * Mint a legacy download token. Authenticated deployments also require
+	 * the current user's cookie for every browser-native file request.
 	 */
 	createDocumentDownloadToken: (knowledgeBaseId: string, documentId: string) =>
 		client.post<DocumentDownloadTokenResponse>(
@@ -251,9 +253,8 @@ export const knowledgeBaseApi = {
 		token: string,
 		download = false,
 	) => {
-		const url = new URL(
+		const url = apiUrl(
 			`/knowledge_bases/${knowledgeBaseId}/documents/${documentId}`,
-			getBaseUrl(),
 		);
 		url.searchParams.set('token', token);
 		if (download) url.searchParams.set('download', 'true');

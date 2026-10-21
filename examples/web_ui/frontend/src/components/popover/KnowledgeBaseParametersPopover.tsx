@@ -121,7 +121,7 @@ export function KnowledgeBaseParametersPopover({
 					size="icon-sm"
 					disabled={triggerDisabled}
 					aria-label={t('panel.knowledge.parametersTitle')}
-					title={t('panel.knowledge.parametersTitle')}
+					tooltip={t('panel.knowledge.parametersTitle')}
 				>
 					<SlidersHorizontal />
 				</Button>

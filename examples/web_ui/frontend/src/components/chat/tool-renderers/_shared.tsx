@@ -3,6 +3,7 @@ import { Ban, Check, ChevronRight, LoaderCircle, Minus, Plus, X } from 'lucide-r
 import type { ReactNode } from 'react';
 
 import type { ToolCallWithResult } from './types';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -80,14 +81,12 @@ export function ToolCallRow({
 	// text transparent). We target the direct span children of this flex row
 	// instead of wrapping ``header``, which also keeps their ``gap-x-2`` spacing.
 	const isRunning = !pair.result || pair.result.state === 'running';
-	const row = (
-		<div
-			className={cn(
-				'group flex flex-row gap-x-2 items-center w-full',
-				expandable && 'cursor-pointer',
-				isRunning && 'shimmer',
-			)}
-		>
+	const rowClassName = cn(
+		'group flex flex-row gap-x-2 items-center w-full',
+		isRunning && '[&>span]:shimmer',
+	);
+	const content = (
+		<>
 			{header}
 			<ToolStateIcon state={pair.result?.state} />
 			{expandable && (
@@ -97,14 +96,25 @@ export function ToolCallRow({
 					}
 				/>
 			)}
-		</div>
+		</>
 	);
 
-	if (!expandable) return row;
+	if (!expandable) return <div className={rowClassName}>{content}</div>;
 
 	return (
 		<Collapsible>
-			<CollapsibleTrigger asChild>{row}</CollapsibleTrigger>
+			<CollapsibleTrigger asChild>
+				<Button
+					type="button"
+					variant="ghost"
+					className={cn(
+						'h-auto justify-start p-0 text-left font-normal whitespace-normal hover:bg-transparent',
+						rowClassName,
+					)}
+				>
+					{content}
+				</Button>
+			</CollapsibleTrigger>
 			<CollapsibleContent>{body}</CollapsibleContent>
 		</Collapsible>
 	);

@@ -1,4 +1,4 @@
-import { client } from './client';
+import { resourceClient } from './client';
 import type { SaveSkillFilesRequest, SkillFile, SkillRecord, SkillView } from './types';
 
 /**
@@ -6,7 +6,9 @@ import type { SaveSkillFilesRequest, SkillFile, SkillRecord, SkillView } from '.
  * lands. Separate from `workspaceApi.skill`, which manages the skills one
  * session's workspace actually holds.
  */
-export const skillApi = {
+export function createSkillApi(owner?: string) {
+const client = resourceClient(owner);
+return {
 	list: () => client.get<SkillView[]>('/skill'),
 	create: (body: SaveSkillFilesRequest) =>
 		client.post<SkillView>('/skill', body, undefined, { silent: true }),
@@ -69,3 +71,6 @@ export const skillApi = {
 	 */
 	remove: (skillId: string) => client.delete(`/skill/${encodeURIComponent(skillId)}`),
 };
+}
+
+export const skillApi = createSkillApi();

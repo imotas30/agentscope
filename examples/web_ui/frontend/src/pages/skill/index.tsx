@@ -93,30 +93,40 @@ function CardItem({ card, installed, installing, now, onInstall, onOpen }: CardI
 				{/* Name, author, tags — each step lighter than the last, so
 				    the eye lands on the name first. */}
 				<ItemTitle>
-					<span className="font-medium">{card.display_name || card.name}</span>
-					{card.author && (
-						<span className="text-xs text-muted-foreground">@{card.author}</span>
-					)}
-					{card.tags.slice(0, 4).map((tag) => (
-						<Badge
-							key={tag}
-							variant="secondary"
-							className="rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
-						>
-							{tag}
-						</Badge>
-					))}
-					{/* Explicit null check: a hub reporting 0 downloads is
+					<Button
+						type="button"
+						variant="ghost"
+						className="h-auto min-w-0 max-w-full flex-wrap justify-start p-0 text-left whitespace-normal hover:bg-transparent"
+						onClick={(event) => {
+							event.stopPropagation();
+							onOpen();
+						}}
+					>
+						<span className="font-medium">{card.display_name || card.name}</span>
+						{card.author && (
+							<span className="text-xs text-muted-foreground">@{card.author}</span>
+						)}
+						{card.tags.slice(0, 4).map((tag) => (
+							<Badge
+								key={tag}
+								variant="secondary"
+								className="rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
+							>
+								{tag}
+							</Badge>
+						))}
+						{/* Explicit null check: a hub reporting 0 downloads is
 					    saying something, one that does not count them is not. */}
-					{card.downloads != null && (
-						<Badge
-							variant="secondary"
-							className="gap-x-1 rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
-						>
-							<Download className="size-2.5" />
-							{card.downloads.toLocaleString()}
-						</Badge>
-					)}
+						{card.downloads != null && (
+							<Badge
+								variant="secondary"
+								className="gap-x-1 rounded-full bg-secondary px-1.75 py-0.5 font-mono text-[10px] font-normal text-text-tertiary"
+							>
+								<Download className="size-2.5" />
+								{card.downloads.toLocaleString()}
+							</Badge>
+						)}
+					</Button>
 				</ItemTitle>
 				<ItemDescription className="line-clamp-1">{card.description}</ItemDescription>
 			</ItemContent>
@@ -434,26 +444,36 @@ function MinePanel({
 
 							<ItemContent>
 								<ItemTitle>
-									<span className="font-medium">
-										{skill.display_name || skill.name}
-									</span>
-									{/* A hand-added skill has no hub to name. */}
-									<span className="text-xs text-muted-foreground">
-										{t(`resource.${skill.source}`)}
-									</span>
-									{skill.hub_id && (
+									<Button
+										type="button"
+										variant="ghost"
+										className="h-auto min-w-0 max-w-full flex-wrap justify-start p-0 text-left whitespace-normal hover:bg-transparent"
+										onClick={(event) => {
+											event.stopPropagation();
+											drawer.open(skill);
+										}}
+									>
+										<span className="font-medium">
+											{skill.display_name || skill.name}
+										</span>
+										{/* A hand-added skill has no hub to name. */}
 										<span className="text-xs text-muted-foreground">
-											@{skill.hub_id}
+											{t(`resource.${skill.source}`)}
 										</span>
-									)}
-									{skill.tags.slice(0, 4).map((tag) => (
-										<span
-											key={tag}
-											className="text-xs text-muted-foreground/60"
-										>
-											#{tag}
-										</span>
-									))}
+										{skill.hub_id && (
+											<span className="text-xs text-muted-foreground">
+												@{skill.hub_id}
+											</span>
+										)}
+										{skill.tags.slice(0, 4).map((tag) => (
+											<span
+												key={tag}
+												className="text-xs text-muted-foreground/60"
+											>
+												#{tag}
+											</span>
+										))}
+									</Button>
 								</ItemTitle>
 								<ItemDescription className="line-clamp-1">
 									{skill.description}
@@ -468,7 +488,7 @@ function MinePanel({
 								<Button
 									size="icon-sm"
 									variant="ghost"
-									title={t('common.edit')}
+									tooltip={t('common.edit')}
 									onClick={(event) => {
 										event.stopPropagation();
 										onEdit(skill);
@@ -488,7 +508,7 @@ function MinePanel({
 										e.stopPropagation();
 										onRemove(skill.id);
 									}}
-									title={t('common.delete')}
+									tooltip={t('common.delete')}
 								>
 									<Trash2 />
 								</Button>

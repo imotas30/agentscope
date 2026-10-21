@@ -179,7 +179,7 @@ export function SkillPanel({
 												setDeleteTarget(skill.resource_id);
 												setDeleteOpen(true);
 											}}
-											title={t('common.delete')}
+											tooltip={t('common.delete')}
 										>
 											<Trash className="size-3" />
 										</Button>

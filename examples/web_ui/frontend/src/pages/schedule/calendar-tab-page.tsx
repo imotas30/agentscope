@@ -84,10 +84,12 @@ function DateCell({ day, isToday, events, onEventClick, moreText }: DateCellProp
 			{/* Event indicators */}
 			<div className="space-y-1">
 				{events.slice(0, maxVisibleEvents).map((event) => (
-					<div
+					<Button
+						type="button"
+						variant="ghost"
 						key={event.id}
-						className="flex flex-row justify-between text-xs py-0.5 px-1 text-secondary-foreground rounded-sm cursor-pointer hover:bg-primary/20"
-						title={`${event.time} - ${event.title}`}
+						className="h-auto w-full justify-between text-xs py-0.5 px-1 text-secondary-foreground rounded-sm hover:bg-primary/20"
+						tooltip={`${event.time} - ${event.title}`}
 						onClick={(e) => {
 							e.stopPropagation();
 							onEventClick(event);
@@ -98,14 +100,18 @@ function DateCell({ day, isToday, events, onEventClick, moreText }: DateCellProp
 							<span className="truncate">{event.title}</span>
 						</div>
 						<span>{event.time}</span>
-					</div>
+					</Button>
 				))}
 				{events.length > maxVisibleEvents && (
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
-							<div className="text-xs text-muted-foreground px-1 cursor-pointer hover:text-foreground hover:underline">
+							<Button
+								type="button"
+								variant="ghost"
+								className="h-auto justify-start p-0 whitespace-normal text-xs text-muted-foreground px-1 cursor-pointer hover:text-foreground hover:underline"
+							>
 								+{events.length - maxVisibleEvents} {moreText}
-							</div>
+							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" className="max-w-64">
 							{events.slice(maxVisibleEvents).map((event) => (

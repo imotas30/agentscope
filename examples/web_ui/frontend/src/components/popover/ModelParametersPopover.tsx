@@ -338,7 +338,7 @@ export function ModelParametersPopover({
 					size="icon-sm"
 					disabled={disabled}
 					aria-label={triggerLabel}
-					title={triggerLabel}
+					tooltip={triggerLabel}
 				>
 					<SlidersHorizontal />
 				</Button>

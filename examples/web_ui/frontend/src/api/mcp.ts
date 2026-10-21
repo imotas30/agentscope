@@ -1,4 +1,4 @@
-import { client } from './client';
+import { resourceClient } from './client';
 import type { MCPClient, MCPDetail, MCPView, UpdateMCPRequest } from './types';
 
 /**
@@ -6,7 +6,9 @@ import type { MCPClient, MCPDetail, MCPView, UpdateMCPRequest } from './types';
  * lands. Separate from `workspaceApi`, which manages what one session's
  * workspace actually holds.
  */
-export const mcpApi = {
+export function createMCPApi(owner?: string) {
+const client = resourceClient(owner);
+return {
 	list: () => client.get<MCPView[]>('/mcp'),
 	get: (mcpId: string) => client.get<MCPDetail>(`/mcp/${encodeURIComponent(mcpId)}`, undefined, { silent: true }),
 	create: (body: { client: MCPClient; description?: string; version?: string }) =>
@@ -26,3 +28,6 @@ export const mcpApi = {
 	 */
 	remove: (mcpId: string) => client.delete(`/mcp/${encodeURIComponent(mcpId)}`),
 };
+}
+
+export const mcpApi = createMCPApi();

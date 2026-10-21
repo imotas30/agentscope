@@ -2,11 +2,11 @@ import type { ChartScene as Scene, Tone } from '@/lib/workspace-analysis';
 import './analysis-scenes.css';
 import { Markdown } from '@/components/markdown';
 
-const colors: Record<Tone, string> = { positive: '#167d8d', negative: '#b45339', axis: '#9aa9b4', label: '#243b4b', value: '#142d3e', surface: '#f1f5f9' };
+const colors: Record<Tone, string> = { positive: 'var(--chart-positive)', negative: 'var(--chart-negative)', axis: 'var(--muted-foreground)', label: 'var(--muted-foreground)', value: 'var(--foreground)', surface: 'var(--muted)' };
 
 export function ChartScene({ scene, showTitle = true }: { scene: Scene; showTitle?: boolean }) {
 	const title = scene.title || scene.description || '数值图表';
-	return <figure aria-label={showTitle ? undefined : title} className="m-0 min-w-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 text-slate-800 shadow-sm">
+	return <figure aria-label={showTitle ? undefined : title} className="m-0 min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm">
 		{showTitle && scene.title && <figcaption className="mb-3 break-words text-sm font-semibold leading-6">{scene.title}</figcaption>}
 		{scene.relationship ? <RelationshipDiagram graph={scene.relationship} hierarchy={scene.type === 'HIERARCHY'} /> : <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={title}>
 			<svg viewBox={`0 0 ${scene.width} ${scene.height}`} role="img" aria-label={title} className="mx-auto block w-full" style={{ minWidth: scene.width }}>
@@ -14,7 +14,7 @@ export function ChartScene({ scene, showTitle = true }: { scene: Scene; showTitl
 				{scene.primitives.map((p, index) => p.kind === 'text' ? <text key={index} x={p.x} y={p.y} fill={colors[p.tone]} fontSize="13" fontWeight={p.tone === 'value' ? 600 : 400}>{p.text}</text> : p.kind === 'line' ? <line key={index} x1={p.x1} x2={p.x2} y1={p.y1} y2={p.y2} stroke={colors[p.tone]} /> : <rect key={index} x={p.x} y={p.y} width={p.width} height={p.height} rx={p.tone === 'surface' ? 8 : 0} fill={colors[p.tone]} />)}
 			</svg>
 		</div>}
-		{scene.description && <div className="mt-3 border-t border-slate-100 pt-2 text-xs leading-5 text-slate-500"><Markdown>{scene.description}</Markdown></div>}
+		{scene.description && <div className="mt-3 border-t border-border pt-2 text-xs leading-5 text-muted-foreground"><Markdown>{scene.description}</Markdown></div>}
 	</figure>;
 }
 

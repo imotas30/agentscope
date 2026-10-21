@@ -1,4 +1,5 @@
-import { ApiError, client, getBaseUrl, getUserId } from './client';
+import { getAuthSignal, getCsrfToken, handleUnauthorized } from './auth-state';
+import { ApiError, client, apiUrl } from './client';
 import type { UploadProgress } from './knowledgeBase';
 import type {
 	AddFromLibraryResponse,
@@ -32,7 +33,8 @@ function uploadSkillXhr(
 	files: File[],
 	options: UploadOptions = {},
 ): Promise<void> {
-	const { onProgress, signal } = options;
+	const { onProgress, signal: callerSignal } = options;
+	const signal = AbortSignal.any([getAuthSignal(), ...(callerSignal ? [callerSignal] : [])]);
 	const formData = new FormData();
 	formData.append(
 		'manifest',
@@ -52,11 +54,11 @@ function uploadSkillXhr(
 		}
 
 		const xhr = new XMLHttpRequest();
-		const url = new URL('/workspace/skill/upload', getBaseUrl());
+		const url = apiUrl('/workspace/skill/upload');
 		url.searchParams.set('agent_id', agentId);
 		url.searchParams.set('session_id', sessionId);
 		xhr.open('POST', url.toString(), true);
-		xhr.setRequestHeader('X-User-ID', getUserId());
+		xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
 
 		const onAbort = () => xhr.abort();
 		signal?.addEventListener('abort', onAbort, { once: true });
@@ -73,6 +75,7 @@ function uploadSkillXhr(
 
 		xhr.onload = () => {
 			cleanup();
+			handleUnauthorized(xhr.status);
 			if (xhr.status >= 200 && xhr.status < 300) {
 				resolve();
 				return;
@@ -171,7 +174,7 @@ const files = {
 			params,
 			{ silent: true },
 		);
-		const url = new URL('/workspace/files', getBaseUrl());
+		const url = apiUrl('/workspace/files');
 		Object.entries({ ...params, token: result.token, download: 'true' }).forEach(
 			([key, value]) => url.searchParams.set(key, value),
 		);

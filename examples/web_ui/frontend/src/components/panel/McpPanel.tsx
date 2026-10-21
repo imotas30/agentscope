@@ -129,7 +129,7 @@ function McpRow({ mcp, installed, onDelete, onToggle }: McpRowProps) {
 						variant="secondary"
 						size="icon-sm"
 						onClick={onDelete}
-						title={t('common.delete')}
+						tooltip={t('common.delete')}
 					>
 						<Trash className="size-3" />
 					</Button>

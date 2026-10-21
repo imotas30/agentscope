@@ -1,4 +1,5 @@
-import type { ContentBlock, Msg } from '@agentscope-ai/agentscope/message';
+import { ErrorType } from '@agentscope-ai/agentscope/event';
+import type { ContentBlock, Msg, TextBlock } from '@agentscope-ai/agentscope/message';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -7,6 +8,7 @@ import { ASMessageBubble } from '@/components/chat/ASMessageBubble';
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from '@/components/ui/message-scroller';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import i18n from '@/i18n';
+import { applyReplyPresentation } from '@/lib/reply-presentation';
 import '@/index.css';
 
 const container = document.querySelector<HTMLDivElement>('#harness')!;
@@ -14,9 +16,12 @@ const summary = document.querySelector<HTMLElement>('#summary')!;
 const results = document.querySelector<HTMLOListElement>('#results')!;
 const run = document.querySelector<HTMLButtonElement>('#run')!;
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+// These fixtures verify card visibility, not report data fetching. Keep them
+// isolated from the user's workspace API while rendering the real component.
+queryClient.setQueryDefaults(['workspace-analysis'], { enabled: false });
 let root: ReturnType<typeof createRoot>;
 const at = '2026-10-13T10:00:00Z';
-const text = (id: string, value = id) => ({ type: 'text', id, text: value, created_at: at, finished_at: at } as ContentBlock);
+const text = (id: string, value = id): TextBlock => ({ type: 'text', id, text: value, created_at: at, finished_at: at });
 const content: ContentBlock[] = [
 	{ type: 'thinking', id: 'thought', thinking: '测试思考详情', created_at: at, finished_at: at },
 	text('progress', '正在核对数据口径'),
@@ -44,19 +49,139 @@ const until = async (predicate: () => unknown) => {
 	}
 	throw new Error('等待界面更新超时');
 };
-function render(messages: Msg[], scope = 'one') {
+function render(messages: Msg[], scope = 'one', withWorkspace = false) {
 	flushSync(() => root.render(<QueryClientProvider client={queryClient}><TooltipProvider>
 		<MessageScrollerProvider autoScroll defaultScrollPosition="end">
 			<div className="h-[360px]"><MessageScroller><MessageScrollerViewport><MessageScrollerContent>
 				{messages.map((message) => <MessageScrollerItem key={`${scope}:${message.id}`} messageId={message.id}>
-					<ASMessageBubble message={message} agentId={null} sessionId={null} onUserConfirm={() => {}} />
+					<ASMessageBubble message={message} agentId={withWorkspace ? 'fixture-agent' : null} sessionId={withWorkspace ? scope : null} onUserConfirm={() => {}} />
 				</MessageScrollerItem>)}
 			</MessageScrollerContent></MessageScrollerViewport></MessageScroller></div>
 		</MessageScrollerProvider>
 	</TooltipProvider></QueryClientProvider>));
 }
 
+const analysisId = 'ana_0123456789abcdef0123456789abcdef';
+const analysisRef = (revision: number) => `${analysisId}:${revision}`;
+const analysisPath = (revision: number) => `./analysis/${analysisId}/revisions/${revision}/analysis.json`;
+function published(revision: number): ContentBlock[] {
+	const ref = analysisRef(revision), path = analysisPath(revision), id = `publish-${revision}`;
+	return [
+		{ type: 'tool_call', id, name: 'AnalysisPublish', input: JSON.stringify({ analysisRef: ref }), state: 'finished', created_at: at, finished_at: at },
+		{ type: 'tool_result', id, name: 'AnalysisPublish', state: 'success', created_at: at, finished_at: at,
+			metadata: { process_summary: { kind: 'analysis', id: analysisId } }, output: [text(`receipt-${revision}`, JSON.stringify({
+				analysisRef: ref, publicationState: 'PUBLISHED', delivery: { type: 'workspace_analysis', registered: true, analysisRef: ref, path },
+			}))] },
+		text(`link-${revision}`, `[查看结果](${path})`),
+	];
+}
+const rejected: ContentBlock = { type: 'hint', id: 'rejected', created_at: at, finished_at: at,
+	source: JSON.stringify({ label: 'System', sublabel: 'Completion check' }), hint: '请修正证据不一致之处' };
+const cardCount = () => container.querySelectorAll('[data-slot="workspace-analysis"]').length;
+
+function runningContent(): ContentBlock[] {
+	const startedAt = new Date(Date.now() - 1_000).toISOString();
+	return [
+		{ type: 'thinking', id: 'live-thinking', thinking: '正在核对预算数据', created_at: startedAt, finished_at: null },
+		{ type: 'hint', id: 'live-hint', source: '核对查询上下文', hint: '正在加载查询条件', created_at: startedAt, finished_at: null },
+		{ type: 'tool_call', id: 'live-mcp', name: 'mcp__budget__query', input: '{}', state: 'finished', created_at: startedAt, finished_at: startedAt },
+		{ type: 'tool_result', id: 'live-mcp', name: 'mcp__budget__query', output: [], state: 'running', metadata: {}, created_at: startedAt, finished_at: null },
+		{ type: 'tool_call', id: 'live-read', name: 'Read', input: '{"file_path":"budget-report-with-a-long-file-name-for-narrow-screens.txt"}', state: 'finished', created_at: startedAt, finished_at: startedAt },
+	];
+}
+
+function assertTextShimmer(row: HTMLElement) {
+	const rowStyle = getComputedStyle(row);
+	assert(rowStyle.backgroundImage === 'none', `整行出现了渐变背景：${row.textContent}`);
+	assert(rowStyle.webkitTextFillColor !== 'rgba(0, 0, 0, 0)', '父容器不应把文字或图标设为透明');
+	const labels = [...row.querySelectorAll<HTMLElement>(':scope > span')];
+	assert(labels.length > 0, '标题文字缺失');
+	for (const label of labels) {
+		const style = getComputedStyle(label);
+		assert(style.backgroundClip === 'text', `扫光必须裁剪到文字：${label.textContent}`);
+		assert(style.backgroundImage.includes('linear-gradient'), '运行中的文字应保留扫光');
+		assert(style.animationName.includes('tw-shimmer'), '运行中的文字应保留动画');
+		assert(label.getBoundingClientRect().width > 0, '文字不能被布局隐藏');
+	}
+	assert(row.scrollWidth <= row.clientWidth + 1, '运行中的标题不能横向溢出');
+}
+
 const tests: [string, () => Promise<void>][] = [
+	['分析被否决后，运行中、失败及重新加载均不展示正文卡片', async () => {
+		const current = msg({ content: published(4), finished_reason: null, finished_at: null });
+		render([current], 'rejected', true);
+		assert(cardCount() === 1, '发布回执应产生卡片');
+		current.content = [...current.content, rejected, text('repair', `[修正尚未完成](${analysisPath(4)})`)];
+		for (const reason of [null, 'error', 'interrupted', 'exceed_max_iters'] as Msg['finished_reason'][]) {
+			const pending = { ...current, finished_reason: reason, finished_at: reason ? at : null };
+			render([pending], 'rejected', true);
+			assert(cardCount() === 0, `被否决的版本不能显示为正文卡片：${reason}`);
+			render([JSON.parse(JSON.stringify(pending))], `reload-${reason}`, true);
+			assert(cardCount() === 0, '重新加载后不得恢复旧卡片，Markdown 链接也不能绕过');
+		}
+	}],
+	['仅更正答复文字后，同一报告复核通过可展示一张卡片', async () => {
+		const current = msg({ content: [...published(4), rejected, text('answer', '依据已核对，结论已修正')], finished_reason: null, finished_at: null });
+		render([current], 'text-repair', true);
+		assert(cardCount() === 0, '等待复核时不得作为最终结果');
+		applyReplyPresentation(current, { type: 'REPLY_END', reply_id: current.id,
+			metadata: { analysisCompletion: { status: 'READY', analysisRef: analysisRef(4), semanticReview: 'PASS' } },
+		} as Parameters<typeof applyReplyPresentation>[1]);
+		current.finished_reason = 'completed' as Msg['finished_reason']; current.finished_at = at;
+		render([{ ...current }], 'text-repair', true);
+		assert(cardCount() === 1, '完成事件必须保留同一已通过版本');
+		render([JSON.parse(JSON.stringify(current))], 'text-repair-reload', true);
+		assert(cardCount() === 1, '保存后重新加载的结果必须一致');
+	}],
+	['修订后只显示最终复核通过的卡片，重复链接不生成第二张', async () => {
+		const current = msg({ content: [...published(4), rejected, ...published(5), text('answer', `[最终分析](${analysisPath(5)})`)],
+			metadata: { analysisCompletion: { status: 'PARTIAL', analysisRef: analysisRef(5), semanticReview: 'PASS' } } });
+		render([current], 'revision', true);
+		assert(cardCount() === 1, '修订版本和正文链接只能形成一张最终卡片');
+		button().click(); await until(() => visible('[data-testid="reply-process-content"]'));
+		assert(cardCount() === 1, '展开过程也不能把被否决链接变回独立卡片');
+	}],
+	...([false, true].map((dark): [string, () => Promise<void>] => [
+		`${dark ? '深色窄屏' : '浅色常规宽度'}：运行中的文字扫光不铺满按钮，完成后停止`,
+		async () => {
+			const wasDark = document.documentElement.classList.contains('dark');
+			const oldWidth = container.style.width;
+			document.documentElement.classList.toggle('dark', dark);
+			container.style.width = dark ? '360px' : '768px';
+			try {
+				const live = runningContent();
+				render([msg({ content: live, finished_at: null, finished_reason: null })]);
+				const details = container.querySelector<HTMLElement>('[data-testid="reply-process-details-content"]')!;
+				const headings = [...details.querySelectorAll<HTMLButtonElement>('button')];
+				assert(headings.length === 3, '应显示思考、提示和工具调用汇总三个标题');
+				headings.forEach(assertTextShimmer);
+				headings[2].click();
+				await until(() => details.textContent?.includes('mcp__budget__query'));
+				const mcpRow = [...details.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.includes('mcp__budget__query'))!;
+				assertTextShimmer(mcpRow);
+				const readRow = [...details.querySelectorAll('span')].find((element) => element.textContent === 'Read')!.parentElement!;
+				assertTextShimmer(readRow);
+				assert(readRow.tagName !== 'BUTTON', '没有详情的工具行不应成为空按钮');
+				mcpRow.focus(); mcpRow.click();
+				await until(() => mcpRow.getAttribute('aria-expanded') === 'true');
+				assert(document.activeElement === mcpRow, '折叠操作必须保留焦点');
+				assertTextShimmer(mcpRow);
+				details.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+				await new Promise((resolve) => setTimeout(resolve, 30));
+				const finished = live.map((block): ContentBlock => block.type === 'tool_result'
+					? { ...block, finished_at: at, state: 'success' }
+					: { ...block, finished_at: at });
+				finished.push({ type: 'tool_result', id: 'live-read', name: 'Read', state: 'success', output: '读取完成', metadata: {}, created_at: at, finished_at: at });
+				render([msg({ content: finished })]);
+				await until(() => [...details.querySelectorAll('span')].every((element) => getComputedStyle(element).animationName === 'none'));
+				assert(details.getClientRects().length > 0, '用户正在阅读的详情应保持展开');
+				assert([...details.querySelectorAll('button')].every((element) => getComputedStyle(element).backgroundImage === 'none'), '结束后不能残留渐变条');
+			} finally {
+				document.documentElement.classList.toggle('dark', wasDark);
+				container.style.width = oldWidth;
+			}
+		},
+	])),
 	['历史回复默认收起，完整多段答案保留', async () => {
 		render([msg()]);
 		assert(button().getAttribute('aria-expanded') === 'false', 'History should be collapsed');
@@ -115,7 +240,7 @@ const tests: [string, () => Promise<void>][] = [
 		assert(button().getAttribute('aria-expanded') === 'true', 'Reading process must stay open');
 	}],
 	['失败提示、部分答案在收起状态仍可见', async () => {
-		render([msg({ finished_reason: 'error' as Msg['finished_reason'], error: { type: 'connection', message: 'offline' } })]);
+		render([msg({ finished_reason: 'error' as Msg['finished_reason'], error: { type: ErrorType.CONNECTION, message: 'offline' } })]);
 		assert(visible('[role="alert"]'), 'Failure alert must be outside process');
 		assert(container.textContent?.includes('这是完整最终答案'), 'Partial output must remain');
 	}],
@@ -193,7 +318,7 @@ for (const running of [true, false]) {
 		render([
 			msg({ id: 'question', role: 'user', content: [text('question', '查询集团净利润')], created_at: previewStartedAt }),
 			msg({ created_at: previewStartedAt, finished_at: running ? null : new Date().toISOString(),
-				finished_reason: running ? null : 'completed' as Msg['finished_reason'], content: running ? content.slice(0, 4) : content }),
+				finished_reason: running ? null : 'completed' as Msg['finished_reason'], content: running ? runningContent() : content }),
 		], `preview-${previewScope}`);
 	});
 }

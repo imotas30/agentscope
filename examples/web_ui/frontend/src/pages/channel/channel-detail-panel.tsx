@@ -9,7 +9,7 @@ import {
 	X,
 } from 'lucide-react';
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import type { ChannelRecord, ChannelStatus, ChannelTypeSchema, SessionRecord } from '@/api';
 import { channelApi } from '@/api';
@@ -257,7 +257,20 @@ export function ChannelDetailPanel({
 											title={t('channel.sessions.openInChat')}
 										>
 											<TableCell className="max-w-0 truncate px-3 py-2 text-xs">
-												{s.config.name || s.id}
+												<Button
+													asChild
+													variant="link"
+													className="h-auto max-w-full justify-start p-0 text-xs"
+												>
+													<Link
+														to={`/chat/${s.agent_id}/${s.id}`}
+														onClick={(event) => event.stopPropagation()}
+													>
+														<span className="truncate">
+															{s.config.name || s.id}
+														</span>
+													</Link>
+												</Button>
 											</TableCell>
 											<TableCell className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
 												{new Date(s.created_at).toLocaleDateString()}

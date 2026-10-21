@@ -1,5 +1,5 @@
 import { CircleAlert } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { mcpApi } from '@/api/mcp';
 import type { MCPClient, MCPView } from '@/api/types';
@@ -32,11 +32,13 @@ function parseClient(raw: string): MCPClient {
 }
 
 interface Props {
+	api?: typeof mcpApi;
+	notice?: ReactNode;
 	record: MCPView | null;
 	onClose: () => void;
 }
 
-export function ManageMCPDialog({ record, onClose }: Props) {
+export function ManageMCPDialog({ record, onClose, api = mcpApi, notice }: Props) {
 	const { t } = useTranslation();
 	const [raw, setRaw] = useState('');
 	const [description, setDescription] = useState(record?.description ?? '');
@@ -50,7 +52,7 @@ export function ManageMCPDialog({ record, onClose }: Props) {
 	useEffect(() => {
 		if (!record) return;
 		let current = true;
-		mcpApi.get(record.id).then((detail) => {
+		api.get(record.id).then((detail) => {
 			if (current) {
 				setRaw(JSON.stringify(detail.client, null, 2));
 				setDescription(detail.description);
@@ -60,7 +62,7 @@ export function ManageMCPDialog({ record, onClose }: Props) {
 			if (current) setLoadError(reason instanceof Error ? reason.message : String(reason));
 		}).finally(() => { if (current) setLoading(false); });
 		return () => { current = false; };
-	}, [record, attempt]);
+	}, [record, attempt, api]);
 
 	const save = async () => {
 		if (saving || loading || loadError) return;
@@ -68,8 +70,8 @@ export function ManageMCPDialog({ record, onClose }: Props) {
 		setSaving(true);
 		try {
 			const body = { client: parseClient(raw), description, ...(version.trim() ? { version: version.trim() } : {}) };
-			if (record) await mcpApi.update(record.id, body, { silent: true });
-			else await mcpApi.create(body);
+			if (record) await api.update(record.id, body, { silent: true });
+			else await api.create(body);
 			notifyResourceChanged();
 			onClose();
 		} catch (reason) {
@@ -84,6 +86,7 @@ export function ManageMCPDialog({ record, onClose }: Props) {
 					<DialogTitle>{t(record ? 'resource.manage.editMcp' : 'resource.manage.createMcp')}</DialogTitle>
 					<DialogDescription>{t('resource.manage.mcpHelp')}</DialogDescription>
 				</DialogHeader>
+				{notice}
 				{loading ? <Spinner /> : loadError ? (
 					<Alert variant="destructive"><CircleAlert /><AlertDescription>{loadError}
 						<Button size="sm" variant="ghost" onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>{t('error.retry')}</Button>

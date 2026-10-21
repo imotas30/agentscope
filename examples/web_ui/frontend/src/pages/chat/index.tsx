@@ -17,9 +17,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { ChatViewport } from './ChatViewport';
 import type { SessionRecord, SessionSourceKind } from '@/api';
-import { AgentDialog } from '@/components/dialog/AgentDialog';
+import { getUserId } from '@/api/client';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
-import { EditAgentDialog } from '@/components/dialog/EditAgentDialog';
 import { RenameSessionDialog } from '@/components/dialog/RenameSessionDialog';
 import { AgentSelect } from '@/components/select/AgentSelect';
 import { ChatTourController } from '@/components/tour/ChatTourController';
@@ -55,6 +54,7 @@ import { AudioProvider } from '@/context/AudioContext';
 import { useAgents } from '@/hooks/useAgents';
 import { useSessions } from '@/hooks/useSessions';
 import { useTranslation } from '@/i18n/useI18n.ts';
+import { newSessionModelOverrides } from '@/lib/new-session-config';
 
 /**
  * The chat page's outer shell. Responsibilities split cleanly:
@@ -85,11 +85,10 @@ const SOURCE_ICON: Record<SessionSourceKind, LucideIcon> = {
 	team: Users,
 };
 
-/** localStorage keys holding the last (agent, session) the user viewed. */
-const LAST_AGENT_KEY = 'chat_last_agent';
-const LAST_SESSION_KEY = 'chat_last_session';
-
 const ChatPageInner = () => {
+	// Remember navigation per account, including after a page reload.
+	const LAST_AGENT_KEY = `chat_last_agent:${getUserId()}`;
+	const LAST_SESSION_KEY = `chat_last_session:${getUserId()}`;
 	const navigate = useNavigate();
 	const {
 		agentId: urlAgentId,
@@ -115,7 +114,6 @@ const ChatPageInner = () => {
 	} = useSessions(urlAgentId ?? null);
 
 	const { isMobile, setOpen, setOpenMobile } = useSidebar();
-	const [editOpen, setEditOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [renameSession, setRenameSession] = useState<SessionRecord | null>(null);
@@ -153,7 +151,7 @@ const ChatPageInner = () => {
 		if (!urlAgentId || !urlSessionId) return;
 		localStorage.setItem(LAST_AGENT_KEY, urlAgentId);
 		localStorage.setItem(LAST_SESSION_KEY, urlSessionId);
-	}, [urlAgentId, urlSessionId]);
+	}, [urlAgentId, urlSessionId, LAST_AGENT_KEY, LAST_SESSION_KEY]);
 
 	// Redirect: URL is missing an agent → reopen the last one viewed,
 	// falling back to the first, and rewrite the URL in-place (replace
@@ -163,7 +161,7 @@ const ChatPageInner = () => {
 		const remembered = localStorage.getItem(LAST_AGENT_KEY);
 		const agent = agents.find((a) => a.id === remembered) ?? agents[0];
 		navigate(`/chat/${agent.id}`, { replace: true });
-	}, [agents, urlAgentId, navigate]);
+	}, [agents, urlAgentId, navigate, LAST_AGENT_KEY]);
 
 	// Redirect: URL has an agent but no session, or its sessionId no
 	// longer exists for this agent → reopen the last session viewed
@@ -178,32 +176,20 @@ const ChatPageInner = () => {
 				: null;
 		const view = sessions.find((v) => v.session.id === remembered) ?? sessions[0];
 		navigate(`/chat/${urlAgentId}/${view.session.id}`, { replace: true });
-	}, [urlAgentId, urlSessionId, sessions, navigate]);
+	}, [urlAgentId, urlSessionId, sessions, navigate, LAST_AGENT_KEY, LAST_SESSION_KEY]);
 
 	/**
 	 * Create a new session under the currently selected agent and
-	 * pre-fill it with the model + fallback the currently open session
-	 * is using (so "new chat" inherits whatever the user just had
-	 * configured). Falls back to any other session under this agent
-	 * when there is no current one — keeps the model choice sticky
-	 * across "delete last → create new" instead of dropping back to
-	 * whatever ChatViewport's auto-pick happens to land on. Navigates
-	 * to the freshly created session.
+	 * keep the current session's explicit model choices, including nulls.
+	 * Inherited fields stay omitted so the new session follows Agent defaults.
+	 * Use another session under this agent when no current one is selected.
 	 */
 	const handleCreateSession = async () => {
 		if (!urlAgentId) return;
 		const seedConfig = currentView?.session.config ?? sessions[0]?.session.config;
 		const res = await createSession({
 			agent_id: urlAgentId,
-			...(seedConfig?.chat_model_config
-				? { chat_model_config: seedConfig.chat_model_config }
-				: {}),
-			...(seedConfig?.fallback_chat_model_config
-				? { fallback_chat_model_config: seedConfig.fallback_chat_model_config }
-				: {}),
-			...(seedConfig?.realtime_model_config
-				? { realtime_model_config: seedConfig.realtime_model_config }
-				: {}),
+			...newSessionModelOverrides(seedConfig),
 		});
 		navigate(`/chat/${urlAgentId}/${res.session_id}`);
 	};
@@ -252,15 +238,16 @@ const ChatPageInner = () => {
 					<SidebarGroup className="px-2 py-0">
 						<SidebarGroupLabel className="justify-between">
 							{t('common.agent')}
-							<AgentDialog onCreated={refetchAgents}>
+							<span>
 								<Button
 									variant="ghost"
 									size="icon-xs"
-									title={t('dialog-agent-create.title')}
+									tooltip={t('dialog-agent-create.title')}
+									onClick={() => navigate('/agents/new')}
 								>
 									<Plus id="tour-create-agent" className="size-3.5" />
 								</Button>
-							</AgentDialog>
+							</span>
 						</SidebarGroupLabel>
 						<SidebarGroupContent className="flex items-center">
 							<AgentSelect
@@ -285,7 +272,14 @@ const ChatPageInner = () => {
 								{/* w-auto: the default pins the menu to the
 								    trigger's width, which is a 32px icon button. */}
 								<DropdownMenuContent className="w-auto">
-									<DropdownMenuItem onClick={() => setEditOpen(true)}>
+									<DropdownMenuItem
+										onClick={() =>
+											selectedAgent &&
+											navigate(
+												`/agents/${selectedAgent.id}?owner=${encodeURIComponent(selectedAgent.user_id)}`,
+											)
+										}
+									>
 										<Settings2 />
 										{t('agent-menu.settings')}
 									</DropdownMenuItem>
@@ -523,16 +517,13 @@ const ChatPageInner = () => {
 					agentId={effectiveAgentId}
 					sessionId={effectiveSessionId}
 					onSessionsChanged={refetchSessions}
+					hasAgentDefaults={
+						!!selectedAgent?.data.defaults && selectedAgent.id === effectiveAgentId
+					}
 				/>
 			</div>
 			{selectedAgent && (
 				<>
-					<EditAgentDialog
-						open={editOpen}
-						onOpenChange={setEditOpen}
-						agent={selectedAgent}
-						onUpdated={refetchAgents}
-					/>
 					<DeleteDialog
 						open={deleteOpen}
 						onOpenChange={setDeleteOpen}

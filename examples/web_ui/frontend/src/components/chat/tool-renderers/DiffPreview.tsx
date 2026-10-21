@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import { Decoration, Diff, Hunk, parseDiff } from 'react-diff-view';
 import type { ChangeData, DiffType, GutterOptions, HunkData } from 'react-diff-view';
 
+import { Button } from '@/components/ui/button';
+
 import 'react-diff-view/style/index.css';
 
 const MAX_VISIBLE_DIFF_LINES = 18;
@@ -185,14 +187,15 @@ export function DiffPreview({ unifiedDiff }: DiffPreviewProps) {
 				if (hiddenLines > 0) {
 					children.push(
 						<Decoration key="collapsed-diff-lines">
-							<button
+							<Button
+								variant="ghost"
 								type="button"
-								className="flex w-full items-center justify-center gap-1 border-t border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+								className="h-auto justify-start p-0 whitespace-normal flex w-full items-center justify-center gap-1 border-t border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 								onClick={() => setExpanded(true)}
 							>
 								<ChevronDown className="h-3.5 w-3.5" />
 								{hiddenLines} more lines (click to expand)
-							</button>
+							</Button>
 						</Decoration>,
 					);
 				}
