@@ -64,18 +64,21 @@ export function finalAnalysisDeliveries(
 	message: Msg,
 	deliveries: readonly RegisteredAnalysis[] = registeredAnalyses(message),
 ): RegisteredAnalysis[] {
+	// A live reply has no final verdict yet. Do not mistake that for an older
+	// conversation without this protocol, or promote an aborted publication.
+	if (message.finished_reason !== 'completed') return [];
 	const completion = object(object(message.metadata)?.analysisCompletion);
 	if (completion?.status === 'READY' || completion?.status === 'PARTIAL') {
 		// A text-only correction can approve the same published version. Do not
 		// require a new receipt after the correction hint, or prefer a larger
 		// revision that the final check did not approve.
-		return message.finished_reason === 'completed' && completion.semanticReview === 'PASS'
+		return completion.semanticReview === 'PASS'
 			? deliveries.filter((item) => item.analysisRef === completion.analysisRef)
 			: [];
 	}
 	if (completion?.status === 'INCOMPLETE' || completion?.status === 'BLOCKED' ||
 		message.content.some(isCompletionRevision)) return [];
-	// Preserve old conversations and independent deliveries without this
-	// host protocol. A rejection hint alone is never evidence of approval.
+	// Preserve completed old conversations and independent deliveries without
+	// this host protocol. A rejection hint alone is never evidence of approval.
 	return latestAnalysisRevisions(deliveries);
 }

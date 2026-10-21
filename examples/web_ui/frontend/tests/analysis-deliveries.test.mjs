@@ -25,7 +25,7 @@ function publication(analysisId, revision, callId) {
   ];
 }
 
-test('a successful receipt supplies the card without a model link, live and after reload', () => {
+test('a successful receipt is tracked without a model link, live and after reload', () => {
   for (const tail of [[], [{ type: 'text', text: '[查看结果](./analysis/ana_misspelled/revisions/4/analysis.json)' }]]) {
     const m = message([call, result, ...tail]); const before = structuredClone(m);
     assert.deepEqual(registeredAnalyses(m), expected);
@@ -90,6 +90,34 @@ test('an unsuccessful newer revision does not replace the last successful delive
   assert.deepEqual(latestAnalysisRevisions([]), []);
 });
 
+test('streaming publications wait for final approval before any rejection hint exists', () => {
+  const m = message([], { id: 'reply', finished_reason: null });
+  for (const revision of [5, 6, 7]) {
+    m.content.push(...publication(id, revision, `publish-${revision}`));
+    const before = structuredClone(m);
+    assert.equal(registeredAnalyses(m).length, revision - 4, 'Keep all receipts in the process');
+    assert.deepEqual(finalAnalysisDeliveries(m), [], 'Publishing is not final approval');
+    assert.deepEqual(finalAnalysisDeliveries(JSON.parse(JSON.stringify(m))), [], 'Reloading a running reply must not expose a card');
+    assert.deepEqual(m, before);
+  }
+  m.content.push({ type: 'text', id: 'answer', text: '最终说明' });
+  const completion = { status: 'READY', analysisRef: `${id}:7`, semanticReview: 'PASS' };
+  applyReplyPresentation(m, { type: 'REPLY_END', reply_id: 'reply', metadata: { analysisCompletion: completion } });
+  assert.deepEqual(finalAnalysisDeliveries(m), [], 'A terminal verdict alone must not bypass the reply state');
+  m.finished_reason = 'completed';
+  assert.deepEqual(finalAnalysisDeliveries(m).map(item => item.analysisRef), [`${id}:7`]);
+  assert.deepEqual(finalAnalysisDeliveries(JSON.parse(JSON.stringify(m))).map(item => item.analysisRef), [`${id}:7`]);
+});
+
+test('missing completion metadata cannot promote unfinished or aborted publications', () => {
+  for (const finished_reason of [undefined, null, 'error', 'interrupted', 'exceed_max_iters']) {
+    const m = message([call, result], { finished_reason, finished_at: '2026-10-21' });
+    assert.deepEqual(finalAnalysisDeliveries(m), []);
+    assert.deepEqual(registeredAnalyses(m), expected, 'Retain the published artifact in process history');
+    assert.ok(presentReply(m).process.includes(result));
+  }
+});
+
 test('rejected publication is hidden during correction and after failed/interrupted reloads', () => {
   for (const reason of [null, 'error', 'interrupted', 'exceed_max_iters', 'completed']) {
     const m = message([call, result, rejected, { type: 'text', id: 'answer', text: '修正未完成' }], { finished_reason: reason });
@@ -141,9 +169,9 @@ test('partial approved results survive but missing receipts, failed reviews and 
   }
 });
 
-test('conversations without completion protocol retain deduplication and distinct results', () => {
+test('completed conversations without completion protocol retain deduplication and distinct results', () => {
   const other = 'ana_fedcba9876543210fedcba9876543210';
-  const m = message([...publication(id, 4, 'old'), ...publication(id, 5, 'latest'), ...publication(other, 1, 'other')]);
+  const m = message([...publication(id, 4, 'old'), ...publication(id, 5, 'latest'), ...publication(other, 1, 'other')], { finished_reason: 'completed' });
   const before = structuredClone(m);
   assert.deepEqual(finalAnalysisDeliveries(m).map(d => d.analysisRef), [`${id}:5`, `${other}:1`]);
   assert.deepEqual(m, before);
