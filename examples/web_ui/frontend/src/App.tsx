@@ -25,7 +25,10 @@ import { KnowledgePage } from '@/pages/knowledge';
 import { SchedulePage } from '@/pages/schedule';
 import { UsersPage } from '@/pages/users';
 
-const router = createBrowserRouter([
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
+
+const router = createBrowserRouter(
+	[
 	{
 		element: <AppLayout />,
 		errorElement: <RouteError />,
@@ -65,7 +68,9 @@ const router = createBrowserRouter([
 	},
 	{ path: '/setup', element: <Navigate to="/account" replace /> },
 	{ path: '/login', element: <Navigate to="/chat" replace /> },
-]);
+	],
+	{ basename: routerBasename },
+);
 
 function App() {
 	const { t } = useTranslation();

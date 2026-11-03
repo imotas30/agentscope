@@ -6,12 +6,14 @@ import { defineConfig, loadEnv } from 'vite';
 import svgr from 'vite-plugin-svgr';
 
 export default defineConfig(({ mode }) => {
-	const env = loadEnv(mode, process.cwd(), 'AGENTSCOPE_');
+	const env = loadEnv(mode, process.cwd(), '');
+	const agentscopeEnv = loadEnv(mode, process.cwd(), 'AGENTSCOPE_');
+	const base = env.VITE_PUBLIC_BASE_PATH || '/';
 	const proxy = {
 		'/api': {
 			target:
 				process.env.AGENTSCOPE_BACKEND_URL ||
-				env.AGENTSCOPE_BACKEND_URL ||
+				agentscopeEnv.AGENTSCOPE_BACKEND_URL ||
 				'http://127.0.0.1:8000',
 			// Preserve the public Host so Origin/CSRF checks work through the proxy.
 			changeOrigin: false,
@@ -19,6 +21,7 @@ export default defineConfig(({ mode }) => {
 		},
 	};
 	return {
+		base,
 		plugins: [react(), tailwindcss(), svgr()],
 		server: {
 			proxy,
