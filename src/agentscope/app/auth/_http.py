@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 
 from ._branding import BrandingSettings
 from ._service import public_user, AuthService
+from ..._logging import logger
 
 Username = Annotated[
     str, Field(min_length=1, max_length=64, pattern=r"^[\w.@-]+$")
@@ -75,6 +76,21 @@ def administrator(user: dict[str, Any] = Depends(current)) -> dict[str, Any]:
     return user
 
 
+def set_session_cookie(
+    response: Response, service: AuthService, token: str
+) -> None:
+    """Login and sliding renewal use the same cookie policy."""
+    response.set_cookie(
+        service.cookie_name,
+        token,
+        httponly=True,
+        secure=service.settings.cookie_secure,
+        samesite="lax",
+        path="/",
+        max_age=service.settings.session_ttl_seconds,
+    )
+
+
 def auth_router(service: AuthService) -> APIRouter:
     router = APIRouter(tags=["authentication"])
 
@@ -100,15 +116,7 @@ def auth_router(service: AuthService) -> APIRouter:
             body.password.get_secret_value(),
             request.client.host if request.client else "unknown",
         )
-        response.set_cookie(
-            service.cookie_name,
-            token,
-            httponly=True,
-            secure=service.settings.cookie_secure,
-            samesite="lax",
-            path="/",
-            max_age=service.settings.session_ttl_seconds,
-        )
+        set_session_cookie(response, service, token)
         return {"user": public_user(user), "csrf_token": session["csrf_token"]}
 
     @router.get("/auth/me")
@@ -124,11 +132,12 @@ def auth_router(service: AuthService) -> APIRouter:
     async def logout(
         request: Request,
         response: Response,
-        _: dict[str, Any] = Depends(current),
+        user: dict[str, Any] = Depends(current),
     ) -> None:
         await service.store.delete_session(
             request.cookies[service.cookie_name]
         )
+        logger.info("Login revoked: reason=logout user_id=%s", user["id"])
         response.delete_cookie(
             service.cookie_name,
             path="/",
@@ -239,6 +248,7 @@ class AuthMiddleware:
         request = StarletteRequest(scope)
         started = False
         completed = False
+        renewal_cookie: bytes | None = None
 
         async def outgoing(message: Message) -> None:
             nonlocal started, completed
@@ -252,6 +262,8 @@ class AuthMiddleware:
                 message["headers"] = headers + [
                     (b"cache-control", b"no-store")
                 ]
+                if renewal_cookie is not None and message["status"] != 401:
+                    message["headers"].append((b"set-cookie", renewal_cookie))
             elif message["type"] == "http.response.body" and not message.get(
                 "more_body", False
             ):
@@ -293,6 +305,21 @@ class AuthMiddleware:
                 session["csrf_token"].encode("utf-8"),
             ):
                 raise HTTPException(403, "请求校验失败，请刷新页面。")
+            # Only incoming, authenticated requests count as activity. Keep
+            # guard_request's periodic checks read-only, and never overwrite
+            # logout's cookie deletion or renew credentials being replaced.
+            if path not in {"/auth/logout", "/auth/password"}:
+                identity = await self.service.renew_session(token)
+                if identity is None:
+                    raise HTTPException(401, "登录已失效，请重新登录。")
+                session, user = identity
+                cookie_response = Response()
+                set_session_cookie(cookie_response, self.service, token)
+                renewal_cookie = next(
+                    value
+                    for name, value in cookie_response.raw_headers
+                    if name == b"set-cookie"
+                )
             scope.setdefault("state", {}).update(
                 auth_user=user, auth_session=session
             )
@@ -320,3 +347,13 @@ class AuthMiddleware:
                         "more_body": False,
                     }
                 )
+        except Exception as exc:
+            # Auth reads also use Redis, but a storage outage does not revoke the cookie.
+            from ..storage._errors import is_storage_unavailable, unavailable_detail
+            if not is_storage_unavailable(exc):
+                raise
+            if not started:
+                await JSONResponse({'detail': unavailable_detail()}, status_code=503,
+                                   headers={'Cache-Control': 'no-store', 'Retry-After': '1'})(scope, receive, send)
+            elif not completed:
+                await send({'type': 'http.response.body', 'body': b'', 'more_body': False})

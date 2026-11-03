@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 
 import { authApi } from '@/api/auth';
-import { getAuth, setAuth, subscribeAuth } from '@/api/auth-state';
+import { getAuth, getAuthNotice, setAuth, subscribeAuth } from '@/api/auth-state';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n/useI18n';
@@ -86,6 +86,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
 				</Button>
 			</main>
 		);
-	if (!session) return <SetupPage />;
+	if (!session) return <SetupPage sessionInvalid={getAuthNotice() === 'sessionInvalid'} />;
 	return <>{children}</>;
 }
