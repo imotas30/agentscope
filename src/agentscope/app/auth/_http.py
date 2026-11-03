@@ -7,7 +7,7 @@ from starlette.types import ASGIApp, Scope, Receive, Send, Message
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
 from ._branding import BrandingSettings
 from ._service import public_user, AuthService
@@ -86,9 +86,19 @@ def set_session_cookie(
         httponly=True,
         secure=service.settings.cookie_secure,
         samesite="lax",
-        path="/",
+        path=service.settings.cookie_path or "/",
         max_age=service.settings.session_ttl_seconds,
     )
+
+
+def safe_next_path(next_path: str | None, default: str = "/chat") -> str:
+    """Allow only same-origin relative redirects."""
+    if not next_path:
+        return default
+    value = next_path.strip()
+    if not value.startswith("/") or value.startswith("//") or "://" in value:
+        return default
+    return value
 
 
 def auth_router(service: AuthService) -> APIRouter:
@@ -118,6 +128,31 @@ def auth_router(service: AuthService) -> APIRouter:
         )
         set_session_cookie(response, service, token)
         return {"user": public_user(user), "csrf_token": session["csrf_token"]}
+
+    @router.get("/sso/nvwa")
+    async def sso_nvwa(
+        request: Request,
+        ticket: str | None = Query(default=None),
+        next: str | None = Query(default=None),  # noqa: A002
+    ) -> RedirectResponse:
+        if service.nvwa_settings is None:
+            raise HTTPException(503, "未配置女娲换票。")
+        if not ticket or not ticket.strip():
+            raise HTTPException(400, "缺少 ticket。")
+        from ._nvwa_ticket import resolve_ticket
+
+        try:
+            nvwa_user = await resolve_ticket(service.nvwa_settings, ticket)
+        except ValueError as exc:
+            raise HTTPException(401, str(exc)) from exc
+        user = await service.ensure_sso_user(
+            nvwa_user.username, nvwa_user.display_name
+        )
+        token, _session, _user = await service.create_session_for_user(user)
+        target = safe_next_path(next)
+        response = RedirectResponse(url=target, status_code=302)
+        set_session_cookie(response, service, token)
+        return response
 
     @router.get("/auth/me")
     async def me(
@@ -290,6 +325,8 @@ class AuthMiddleware:
                     != "application/json"
                 ):
                     raise HTTPException(415, "登录请求必须使用 JSON。")
+                return await self.app(scope, receive, outgoing)
+            if path == "/sso/nvwa" and scope["method"] == "GET":
                 return await self.app(scope, receive, outgoing)
             token = request.cookies.get(self.service.cookie_name)
             identity = await self.service.authenticate(token)

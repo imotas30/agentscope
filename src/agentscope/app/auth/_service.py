@@ -63,12 +63,18 @@ class AuthService:
 
     cookie_name = "agentscope_session"
 
-    def __init__(self, store: RedisAuthStore, settings: AuthSettings) -> None:
+    def __init__(
+        self,
+        store: RedisAuthStore,
+        settings: AuthSettings,
+        nvwa_settings: Any | None = None,
+    ) -> None:
         settings.validate_password()
         from argon2 import PasswordHasher
 
         self.store = store
         self.settings = settings
+        self.nvwa_settings = nvwa_settings
         self.hasher = PasswordHasher(
             time_cost=2, memory_cost=19456, parallelism=1
         )
@@ -207,6 +213,73 @@ class AuthService:
             self.settings.session_ttl_seconds,
         )
         return token, session, user
+
+    async def create_session_for_user(
+        self, user: dict[str, Any]
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Create a session for an already-authenticated account (SSO)."""
+        verified_user = user
+
+        def touch(users: dict[str, dict[str, Any]]) -> dict[str, Any]:
+            latest = users[verified_user["id"]]
+            if (
+                latest["status"] != "active"
+                or latest["auth_version"] != verified_user["auth_version"]
+            ):
+                reject(401, "账号状态已变化，请重新登录。")
+            latest["last_login_at"] = now()
+            return latest
+
+        user = await self.store.mutate(touch)
+        token = secrets.token_urlsafe(32)
+        session = dict(
+            user_id=user["id"],
+            auth_version=user["auth_version"],
+            csrf_token=secrets.token_urlsafe(32),
+            expires_at=time.time() + self.settings.session_ttl_seconds,
+        )
+        await self.store.save_session(
+            token, session, self.settings.session_ttl_seconds
+        )
+        logger.info(
+            "SSO session created: user_id=%s idle_timeout_seconds=%s",
+            user["id"],
+            self.settings.session_ttl_seconds,
+        )
+        return token, session, user
+
+    async def ensure_sso_user(
+        self, username: str, display_name: str = ""
+    ) -> dict[str, Any]:
+        """Find a user by username or JIT-create one for Nuwa SSO."""
+        from ._http import NewUser
+
+        users = await self.store.users()
+        existing = next(
+            (
+                u
+                for u in users.values()
+                if u["status"] != "deleted"
+                and u["username"].casefold() == username.casefold()
+            ),
+            None,
+        )
+        if existing is not None:
+            if (
+                display_name
+                and existing.get("display_name", "") != display_name
+            ):
+                return await self.edit_user(
+                    existing["id"], {"display_name": display_name}
+                )
+            return existing
+        return await self.create_user(
+            NewUser(
+                username=username,
+                password=secrets.token_urlsafe(24),
+                display_name=display_name or username,
+            )
+        )
 
     async def authenticate(
         self, token: str | None
