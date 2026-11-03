@@ -25,6 +25,7 @@ class AuthSettings(BaseModel):
     session_ttl_seconds: int = Field(default=43200, ge=60, le=604800)
     cookie_secure: bool = False
     allowed_origins: list[str] = Field(default_factory=list)
+    cookie_path: str = "/"
 
     def validate_password(self) -> None:
         value = self.admin_password.get_secret_value()
