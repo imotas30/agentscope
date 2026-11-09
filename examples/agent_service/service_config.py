@@ -88,6 +88,10 @@ def nvwa_settings(path: str | Path, environ=None):
         values["base_url"] = env["AGENTSCOPE_NVWA_BASE_URL"]
     if "AGENTSCOPE_NVWA_VALIDATE_PATH" in env:
         values["validate_path"] = env["AGENTSCOPE_NVWA_VALIDATE_PATH"]
+    if "AGENTSCOPE_NVWA_AUTH_MODE" in env:
+        values["auth_mode"] = env["AGENTSCOPE_NVWA_AUTH_MODE"]
+    if "AGENTSCOPE_NVWA_USER_INFO_PATH" in env:
+        values["user_info_path"] = env["AGENTSCOPE_NVWA_USER_INFO_PATH"]
     if not values.get("base_url"):
         return None
     try:
@@ -95,5 +99,5 @@ def nvwa_settings(path: str | Path, environ=None):
     except ValueError as exc:
         raise ValueError(
             "Invalid nvwa configuration. Set base_url and optional "
-            "validate_path / timeout_seconds."
+            "auth_mode / user_info_path / validate_path / timeout_seconds."
         ) from exc

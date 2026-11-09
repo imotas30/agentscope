@@ -133,25 +133,103 @@ def auth_router(service: AuthService) -> APIRouter:
     async def sso_nvwa(
         request: Request,
         ticket: str | None = Query(default=None),
+        nv_t: str | None = Query(default=None),
+        token: str | None = Query(default=None),
+        username: str | None = Query(default=None),
+        display_name: str | None = Query(default=None),
+        displayName: str | None = Query(default=None),
         next: str | None = Query(default=None),  # noqa: A002
     ) -> RedirectResponse:
         if service.nvwa_settings is None:
             raise HTTPException(503, "未配置女娲换票。")
-        if not ticket or not ticket.strip():
-            raise HTTPException(400, "缺少 ticket。")
-        from ._nvwa_ticket import resolve_ticket
+        # URL App：ticket=短期票；token/nv_t=会话 Authorization（优先）
+        session_token = None
+        for value in (token, nv_t):
+            if isinstance(value, str) and value.strip():
+                session_token = value.strip()
+                break
+        short_ticket = (
+            ticket.strip() if isinstance(ticket, str) and ticket.strip() else None
+        )
+        embed_username = (
+            username.strip() if isinstance(username, str) and username.strip() else None
+        )
+        embed_display = None
+        for value in (display_name, displayName):
+            if isinstance(value, str) and value.strip():
+                embed_display = value.strip()
+                break
+        if not session_token and not short_ticket and not embed_username:
+            raise HTTPException(400, "缺少 token / nv_t / ticket / username。")
+        from ._nvwa_ticket import NvwaUser, resolve_ticket
 
-        try:
-            nvwa_user = await resolve_ticket(service.nvwa_settings, ticket)
-        except ValueError as exc:
-            raise HTTPException(401, str(exc)) from exc
+        nvwa_user = None
+        resolve_error = None
+        if session_token or short_ticket:
+            try:
+                if session_token:
+                    nvwa_user = await resolve_ticket(
+                        service.nvwa_settings,
+                        session_token,
+                        prefer="bearer",
+                    )
+                else:
+                    nvwa_user = await resolve_ticket(
+                        service.nvwa_settings,
+                        short_ticket,
+                        prefer="auto",
+                    )
+            except ValueError as exc:
+                resolve_error = str(exc)
+        # 本地常无 nvwa-user 微服务（404）；url-app 可附带 username 回退。
+        if nvwa_user is None and embed_username:
+            nvwa_user = NvwaUser(
+                username=embed_username,
+                display_name=embed_display or "",
+            )
+        if nvwa_user is None:
+            detail = resolve_error or "验票失败。"
+            if not session_token and not embed_username:
+                detail += (
+                    " 当前请求只有短期 ticket、没有 token/username。"
+                    " 请确认女娲 url-app 已加载补丁并强制刷新后重开菜单。"
+                )
+            raise HTTPException(401, detail)
         user = await service.ensure_sso_user(
             nvwa_user.username, nvwa_user.display_name
         )
-        token, _session, _user = await service.create_session_for_user(user)
+        # JIT: copy usable model credentials + create an isolated default
+        # agent under this user only (other Nuwa users cannot see it).
+        storage = getattr(request.app.state, "storage", None)
+        if storage is not None:
+            try:
+                from ._sso_bootstrap import provision_sso_user
+
+                await provision_sso_user(storage, user)
+            except Exception:  # noqa: BLE001 — never block SSO on provision failure
+                pass
+        session_token, _session, _user = await service.create_session_for_user(
+            user
+        )
         target = safe_next_path(next)
-        response = RedirectResponse(url=target, status_code=302)
-        set_session_cookie(response, service, token)
+        # Cross-site iframe blocks Set-Cookie. Do NOT 302 to /sso/nvwa/handoff:
+        # under Vite `/api` proxy that Location drops the `/api` prefix and the
+        # SPA swallows the page. Return handoff HTML on this same response.
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><title>SSO</title></head>
+<body><p>正在进入…</p>
+<script>
+(function () {{
+  try {{
+    sessionStorage.setItem("agentscope_session", {session_token!r});
+    sessionStorage.setItem("agentscope_embed", "1");
+  }} catch (e) {{}}
+  location.replace({target!r});
+}})();
+</script></body></html>"""
+        response = Response(content=html, media_type="text/html; charset=utf-8")
+        set_session_cookie(response, service, session_token)
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     @router.get("/auth/me")
@@ -329,6 +407,10 @@ class AuthMiddleware:
             if path == "/sso/nvwa" and scope["method"] == "GET":
                 return await self.app(scope, receive, outgoing)
             token = request.cookies.get(self.service.cookie_name)
+            if not token:
+                # Third-party iframe fallback: frontend sends session from sessionStorage.
+                header = request.headers.get("x-agentscope-session", "").strip()
+                token = header or None
             identity = await self.service.authenticate(token)
             if identity is None:
                 raise HTTPException(401, "登录已失效，请重新登录。")

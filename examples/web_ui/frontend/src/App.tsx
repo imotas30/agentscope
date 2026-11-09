@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Onborda, OnbordaProvider } from 'onborda';
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 
 import { MCPHubPage } from './pages/mcp';
@@ -14,6 +14,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { AuthGate } from '@/context/AuthContext';
 import { UploadProvider } from '@/context/UploadContext';
 import { useTranslation } from '@/i18n/useI18n';
+import { isEmbedded } from '@/lib/embed';
 import { queryClient } from '@/lib/query-client';
 import { AccountPage } from '@/pages/account';
 import { AgentsPage, AgentEditorPage } from '@/pages/agents';
@@ -72,27 +73,43 @@ const router = createBrowserRouter(
 	{ basename: routerBasename },
 );
 
-function App() {
+function TourStack({ children }: { children: ReactNode }) {
 	const { t } = useTranslation();
 	const tours = useMemo(() => [buildChatTour(t)], [t]);
+	const embedded = isEmbedded();
 
+	// Keep OnbordaProvider so useOnborda() callers don't crash; skip the
+	// Onborda overlay itself in Nuwa FUNCTAB (its z-[900] shield blocks clicks
+	// when the tour card ends up off-screen).
+	return (
+		<OnbordaProvider>
+			{embedded ? (
+				children
+			) : (
+				<Onborda
+					steps={tours}
+					cardComponent={TourCard}
+					shadowOpacity="0.6"
+					cardTransition={{ type: 'spring', duration: 0.4 }}
+				>
+					{children}
+				</Onborda>
+			)}
+		</OnbordaProvider>
+	);
+}
+
+function App() {
 	return (
 		<QueryClientProvider client={queryClient}>
 			<BrowserBranding />
 			<AuthGate>
-				<OnbordaProvider>
-					<Onborda
-						steps={tours}
-						cardComponent={TourCard}
-						shadowOpacity="0.6"
-						cardTransition={{ type: 'spring', duration: 0.4 }}
-					>
-						<UploadProvider>
-							<RouterProvider router={router} />
-						</UploadProvider>
-						<Toaster richColors position="top-right" />
-					</Onborda>
-				</OnbordaProvider>
+				<TourStack>
+					<UploadProvider>
+						<RouterProvider router={router} />
+					</UploadProvider>
+					<Toaster richColors position="top-right" />
+				</TourStack>
 			</AuthGate>
 		</QueryClientProvider>
 	);

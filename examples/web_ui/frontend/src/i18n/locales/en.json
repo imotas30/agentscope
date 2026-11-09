@@ -257,6 +257,9 @@
 			"elapsed": "Waiting {{seconds}}s"
 		},
 		"inputPlaceholder": "Type a message...",
+		"inputDisabledNoModel": "Select a model above first…",
+		"selectModelHintTitle": "No model selected",
+		"selectModelHintBody": "Use Select model in the top bar. If the list is empty, this account has no credentials yet — add one, or reopen the Nuwa menu to sync admin credentials.",
 		"confirmToolCall": "Allow this action?",
 		"subagentConfirmTitle": "{{name}} requests confirmation",
 		"newSession": "New Session",

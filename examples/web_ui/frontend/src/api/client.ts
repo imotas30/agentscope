@@ -36,9 +36,30 @@ interface RequestOptions {
 /** Reported when `timeoutMs` elapses. Real 408s come from a server, so either way the request did not complete in time. */
 export const TIMEOUT_STATUS = 408;
 
+const SSO_SESSION_KEY = 'agentscope_session';
+
+/** Session token for cross-site iframe embeds where cookies are blocked. */
+export function getSsoSessionToken(): string {
+	try {
+		return sessionStorage.getItem(SSO_SESSION_KEY) || '';
+	} catch {
+		return '';
+	}
+}
+
+export function clearSsoSessionToken(): void {
+	try {
+		sessionStorage.removeItem(SSO_SESSION_KEY);
+	} catch {
+		/* ignore */
+	}
+}
+
 function buildHeaders(hasBody: boolean): Record<string, string> {
 	const headers: Record<string, string> = { 'X-CSRF-Token': getCsrfToken() };
 	if (hasBody) headers['Content-Type'] = 'application/json';
+	const sso = getSsoSessionToken();
+	if (sso) headers['X-Agentscope-Session'] = sso;
 	return headers;
 }
 

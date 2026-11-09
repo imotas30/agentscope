@@ -100,8 +100,10 @@ def test_sso_jit_creates_user_and_sets_cookie():
                     "/sso/nvwa?ticket=good&next=/agents",
                     follow_redirects=False,
                 )
-                assert response.status_code == 302
-                assert response.headers["location"] == "/agents"
+                assert response.status_code == 200
+                assert "text/html" in response.headers.get("content-type", "")
+                assert "agentscope_session" in response.text
+                assert "location.replace('/agents')" in response.text
                 cookie = response.headers.get("set-cookie", "")
                 assert "agentscope_session=" in cookie
                 assert "Path=/agentscope" in cookie
@@ -117,7 +119,7 @@ def test_sso_jit_creates_user_and_sets_cookie():
                     assert len(match) == 1
                     assert match[0]["display_name"] == "张三"
 
-                asyncio.get_event_loop().run_until_complete(lookup())
+                asyncio.run(lookup())
 
 
 def test_sso_rejects_bad_ticket():
@@ -133,3 +135,36 @@ def test_sso_rejects_bad_ticket():
             with TestClient(app) as client:
                 response = client.get("/sso/nvwa?ticket=bad")
                 assert response.status_code == 401
+
+
+def test_sso_reuses_builtin_admin_without_edit():
+    with tempfile.TemporaryDirectory() as workdir:
+        app, service = make_sso_app(
+            workdir,
+            nvwa=NvwaTicketSettings(base_url="http://nvwa.test"),
+        )
+        fake_user = NvwaUser(
+            username="admin", display_name="女娲管理员", user_id="nvwa-admin"
+        )
+        with patch(
+            "agentscope.app.auth._nvwa_ticket.resolve_ticket",
+            new=AsyncMock(return_value=fake_user),
+        ):
+            with TestClient(app) as client:
+                response = client.get(
+                    "/sso/nvwa?ticket=good&next=/chat",
+                    follow_redirects=False,
+                )
+                assert response.status_code == 200
+                assert "agentscope_session" in response.text
+                assert "agentscope_session=" in response.headers.get(
+                    "set-cookie", ""
+                )
+                import asyncio
+
+                async def lookup():
+                    admin = await service.store.user("admin")
+                    assert admin is not None
+                    assert admin["username"] == "admin"
+
+                asyncio.run(lookup())

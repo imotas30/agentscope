@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
 		base,
 		plugins: [react(), tailwindcss(), svgr()],
 		server: {
+			host: true,
 			proxy,
 		},
 		preview: { proxy },

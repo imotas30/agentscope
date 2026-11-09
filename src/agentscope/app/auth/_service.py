@@ -265,6 +265,9 @@ class AuthService:
             None,
         )
         if existing is not None:
+            # Built-in admin is server-managed; SSO may only reuse the account.
+            if existing.get("id") == "admin":
+                return existing
             if (
                 display_name
                 and existing.get("display_name", "") != display_name
