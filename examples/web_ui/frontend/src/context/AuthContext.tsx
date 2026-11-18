@@ -5,6 +5,7 @@ import { getAuth, getAuthNotice, setAuth, subscribeAuth } from '@/api/auth-state
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n/useI18n';
+import { bootstrapNvwaSsoUrl, clearNvwaSsoBootstrap } from '@/lib/nvwa-embed';
 import { SetupPage } from '@/pages/setup';
 
 // Shared external-store hook; no mutable React context is required.
@@ -24,15 +25,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
 			.me()
 			.then((value) => {
 				if (!cancelled) {
+					clearNvwaSsoBootstrap();
 					setAuth(value);
 					setReady(true);
 				}
 			})
-			.catch((e) => {
-				if (!cancelled) {
-					setError(!(e instanceof ApiError && e.status === 401));
-					setReady(true);
+			.catch(async (e) => {
+				if (cancelled) return;
+				const unauthorized = e instanceof ApiError && e.status === 401;
+				if (unauthorized) {
+					const target = await bootstrapNvwaSsoUrl();
+					if (cancelled) return;
+					if (target) {
+						window.location.replace(target);
+						return;
+					}
 				}
+				setError(!unauthorized);
+				setReady(true);
 			});
 		return () => {
 			cancelled = true;

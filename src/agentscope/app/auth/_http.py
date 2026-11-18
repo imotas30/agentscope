@@ -7,7 +7,7 @@ from starlette.types import ASGIApp, Scope, Receive, Send, Message
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
 from ._branding import BrandingSettings
 from ._service import public_user, AuthService
@@ -86,9 +86,19 @@ def set_session_cookie(
         httponly=True,
         secure=service.settings.cookie_secure,
         samesite="lax",
-        path="/",
+        path=service.settings.cookie_path or "/",
         max_age=service.settings.session_ttl_seconds,
     )
+
+
+def safe_next_path(next_path: str | None, default: str = "/chat") -> str:
+    """Allow only same-origin relative redirects."""
+    if not next_path:
+        return default
+    value = next_path.strip()
+    if not value.startswith("/") or value.startswith("//") or "://" in value:
+        return default
+    return value
 
 
 def auth_router(service: AuthService) -> APIRouter:
@@ -118,6 +128,89 @@ def auth_router(service: AuthService) -> APIRouter:
         )
         set_session_cookie(response, service, token)
         return {"user": public_user(user), "csrf_token": session["csrf_token"]}
+
+    @router.get("/sso/nvwa")
+    async def sso_nvwa(
+        request: Request,
+        ticket: str | None = Query(default=None),
+        nv_t: str | None = Query(default=None),
+        token: str | None = Query(default=None),
+        next: str | None = Query(default=None),  # noqa: A002
+    ) -> RedirectResponse:
+        if service.nvwa_settings is None:
+            raise HTTPException(503, "未配置女娲换票。")
+        # URL App：ticket=短期票；token/nv_t=会话令牌。身份只来自女娲验票。
+        session_token = None
+        for value in (token, nv_t):
+            if isinstance(value, str) and value.strip():
+                session_token = value.strip()
+                break
+        short_ticket = (
+            ticket.strip() if isinstance(ticket, str) and ticket.strip() else None
+        )
+        if not session_token and not short_ticket:
+            raise HTTPException(400, "缺少 ticket / token / nv_t。")
+        from ._nvwa_ticket import resolve_ticket
+
+        nvwa_user = None
+        resolve_error = None
+        if session_token:
+            try:
+                nvwa_user = await resolve_ticket(
+                    service.nvwa_settings,
+                    session_token,
+                    prefer="bearer",
+                )
+            except ValueError as exc:
+                resolve_error = str(exc)
+        if nvwa_user is None and short_ticket and short_ticket != session_token:
+            try:
+                nvwa_user = await resolve_ticket(
+                    service.nvwa_settings,
+                    short_ticket,
+                    prefer="auto",
+                )
+                resolve_error = None
+            except ValueError as exc:
+                resolve_error = str(exc)
+        if nvwa_user is None:
+            raise HTTPException(401, resolve_error or "验票失败。")
+        user = await service.ensure_sso_user(
+            nvwa_user.username, nvwa_user.display_name
+        )
+        # JIT: copy usable model credentials + create an isolated default
+        # agent under this user only (other Nuwa users cannot see it).
+        storage = getattr(request.app.state, "storage", None)
+        if storage is not None:
+            try:
+                from ._sso_bootstrap import provision_sso_user
+
+                await provision_sso_user(storage, user)
+            except Exception:  # noqa: BLE001 — never block SSO on provision failure
+                pass
+        session_token, _session, _user = await service.create_session_for_user(
+            user
+        )
+        target = safe_next_path(next)
+        # Cross-site iframe blocks Set-Cookie. Do NOT 302 to /sso/nvwa/handoff:
+        # under Vite `/api` proxy that Location drops the `/api` prefix and the
+        # SPA swallows the page. Return handoff HTML on this same response.
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><title>SSO</title></head>
+<body><p>正在进入…</p>
+<script>
+(function () {{
+  try {{
+    sessionStorage.setItem("agentscope_session", {session_token!r});
+    sessionStorage.setItem("agentscope_embed", "1");
+  }} catch (e) {{}}
+  location.replace({target!r});
+}})();
+</script></body></html>"""
+        response = Response(content=html, media_type="text/html; charset=utf-8")
+        set_session_cookie(response, service, session_token)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @router.get("/auth/me")
     async def me(
@@ -291,7 +384,13 @@ class AuthMiddleware:
                 ):
                     raise HTTPException(415, "登录请求必须使用 JSON。")
                 return await self.app(scope, receive, outgoing)
+            if path == "/sso/nvwa" and scope["method"] == "GET":
+                return await self.app(scope, receive, outgoing)
             token = request.cookies.get(self.service.cookie_name)
+            if not token:
+                # Third-party iframe fallback: frontend sends session from sessionStorage.
+                header = request.headers.get("x-agentscope-session", "").strip()
+                token = header or None
             identity = await self.service.authenticate(token)
             if identity is None:
                 raise HTTPException(401, "登录已失效，请重新登录。")
