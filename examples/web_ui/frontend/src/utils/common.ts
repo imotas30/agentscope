@@ -6,16 +6,51 @@ export function credentialLabel(credential: CredentialView): string {
 }
 
 /**
+ * Copy during the click itself. A portal iframe does not receive
+ * clipboard-write, so the async Clipboard API rejects and the click
+ * gesture is already gone by the time that rejection arrives.
+ */
+function copyWithCommand(text: string): boolean {
+	const area = document.createElement('textarea');
+	area.value = text;
+	area.setAttribute('readonly', '');
+	area.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+	document.body.appendChild(area);
+	area.focus();
+	area.select();
+	area.setSelectionRange(0, area.value.length);
+	let ok = false;
+	try {
+		ok = document.execCommand('copy');
+	} catch {
+		ok = false;
+	} finally {
+		area.remove();
+	}
+	return ok;
+}
+
+function embeddedFrame(): boolean {
+	try {
+		return window.self !== window.top;
+	} catch {
+		return true;
+	}
+}
+
+/**
  * Copy a string to the system clipboard.
  *
  * @param text The text content to copy.
  * @returns A promise that resolves to true if the copy succeeds; false otherwise.
  */
 export const copyToClipboard = async (text: string): Promise<boolean> => {
+	if (embeddedFrame() && copyWithCommand(text)) return true;
 	try {
 		await navigator.clipboard.writeText(text);
 		return true;
 	} catch (err) {
+		if (copyWithCommand(text)) return true;
 		console.error('Failed to copy text: ', err);
 		return false;
 	}

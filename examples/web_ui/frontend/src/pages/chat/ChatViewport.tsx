@@ -5,6 +5,7 @@ import {
 	BookText,
 	ChevronDown,
 	Database,
+	FileDown,
 	ListTodo,
 	PanelRight,
 	ShieldCheck,
@@ -62,6 +63,10 @@ import { useSessions } from '@/hooks/useSessions';
 import { useWorkspace } from '@/hooks/useWorkspace.ts';
 import { useWorkspaceStatus } from '@/hooks/useWorkspaceStatus';
 import { useTranslation } from '@/i18n/useI18n';
+import {
+	conversationHasExportableText,
+	downloadConversationDocument,
+} from '@/lib/conversation-document';
 
 const REALTIME_EXCLUDED_ENUM_VALUES: Record<string, unknown[]> = {
 	turn_detection: ['none'],
@@ -758,6 +763,22 @@ export function ChatViewport({
 										>
 											{view?.session.config.name}
 										</span>
+									)}
+									{conversationHasExportableText(msgs) && (
+										<Button
+											variant="ghost"
+											size="sm"
+											className="shrink-0 gap-1 px-2"
+											type="button"
+											onClick={() =>
+												downloadConversationDocument(msgs, view?.session.config.name)
+											}
+											tooltip="导出文档"
+											aria-label="导出对话文档"
+										>
+											<FileDown className="size-4" />
+											导出文档
+										</Button>
 									)}
 								</div>
 								{/* Never squeezed by a long session name: the

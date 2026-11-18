@@ -55,6 +55,14 @@ also restores that preference. Imports and selections synchronize across tabs.
 
 Run the appearance and theme-import checks with `pnpm test:appearance`.
 
+## 对话导出
+
+会话里出现最终回答后，标题旁的「导出文档」会下载一份 Word 可打开的 `.doc`
+文件。文档只包含助手的最终回答，并按对话中的排版写入标题、表格、列表和强调。
+提问、思考、处理步骤和工具结果不写入文档。文件名使用当前会话名称。
+
+运行检查：`node --experimental-strip-types --test tests/conversation-document.test.mjs`。
+
 ## 智能体管理
 
 侧栏的「智能体管理」打开 `/agents`，可以新建、搜索、配置、复制和删除智能体。
