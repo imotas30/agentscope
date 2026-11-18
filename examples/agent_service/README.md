@@ -142,6 +142,48 @@ CSRF 校验的请求会同步延长 Redis 会话和浏览器 Cookie，包括队�
 SDK 的 `create_app()` 通过可选 `auth_service` 接入认证；本示例始终启用。
 嵌入者若未配置该参数，仍需自行提供可信身份边界。
 
+## 女娲门户单点登录
+
+女娲 URL App 在用户已经登录门户后申请一张一次性 `ticket`，并把它附在目标地址上。
+AgentScope 不把这张票据当作自己的会话，也不调用 `/nvwa-user/v1/user/current`。
+
+页面打开后，前端把地址上的 `ticket` 交给 `GET /sso/nvwa`。服务端再用请求头
+`authorization-ticket` 调用女娲：
+
+```http
+GET {nvwa.base_url}/nvwa/getLoginContext
+authorization-ticket: <ticket>
+```
+
+成功响应里的登录人位于 `context.contextUser`：`name` 是用户名，`fullname` 是显示名。
+服务端按该用户建立 AgentScope 自己的会话。此后刷新页面使用这份会话，不再提交
+同一张票据。票据只能验一次；从门户菜单重新打开会颁发新票据。同一张已经失败的
+票据不会自动重试。
+
+在 `service-config.local.json` 中增加 `nvwa` 段，格式见
+`service-config.example.json`：
+
+```json
+{
+  "nvwa": {
+    "base_url": "http://127.0.0.1:8080",
+    "auth_mode": "auto",
+    "user_info_path": "/nvwa/getLoginContext",
+    "timeout_seconds": 10
+  }
+}
+```
+
+`base_url` 是女娲服务地址，不要带末尾斜杠。`auth_mode` 为 `auto` 时，URL App
+的短期票据走上面的登录上下文接口。`bearer` 只用于已经持有女娲会话令牌
+（`token` 或 `nv_t`）的调用，令牌放在 `Authorization` 头。`ticket_post` 会向
+`validate_path` 提交 JSON，URL App 的票据不要使用这个模式。未配置 `base_url`
+时，`GET /sso/nvwa` 返回 503。
+
+门户页面所在来源（协议、主机和端口）必须写入 `auth.allowed_origins`。
+嵌入路径如果不是站点根路径，同时设置 `auth.cookie_path`，与前端
+`VITE_PUBLIC_BASE_PATH` 一致。
+
 ## MCP / Skill 中心直接管理
 
 示例服务不再加载内置 MCP / Skill 清单，也不再自动创建 Playwright、AMap

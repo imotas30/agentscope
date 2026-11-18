@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Configurable Nuwa identity resolution for URL-App embed / SSO."""
+"""Resolve a Nuwa URL App ticket into a portal user.
+
+URL App appends a one-time ``ticket`` to the embedded page. ``auto`` mode
+sends that value in the ``authorization-ticket`` header to
+``GET {base_url}/nvwa/getLoginContext``. The username is
+``context.contextUser.name``. ``bearer`` mode is only for an existing Nuwa
+session token. Do not send a URL App ticket to ``/nvwa-user/v1/user/current``.
+"""
 
 from __future__ import annotations
 
@@ -23,7 +30,8 @@ class NvwaTicketSettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     base_url: str = Field(min_length=1)
-    # auto: session token → bearer；短期 ticket → ticket_post，失败再试 bearer
+    # auto: URL App ticket → authorization-ticket on user_info_path.
+    # bearer: existing Nuwa session token. ticket_post: POST validate_path.
     auth_mode: Literal["auto", "bearer", "ticket_post"] = "auto"
     validate_path: str = "/nvwa-certification/v1/ticket/resolve"
     user_info_path: str = "/nvwa/getLoginContext"
@@ -139,7 +147,21 @@ async def resolve_ticket(
     client: httpx.AsyncClient | None = None,
     prefer: Literal["auto", "bearer", "ticket_post"] | None = None,
 ) -> NvwaUser:
-    """Resolve URL-App ticket / session token into a Nuwa user."""
+    """Resolve a Nuwa credential into a portal user.
+
+    Args:
+        settings: Base URL and which Nuwa endpoint to call.
+        ticket: URL App ticket, or a Nuwa session token in bearer mode.
+        client: Optional HTTP client. A client is created when omitted.
+        prefer: Overrides ``settings.auth_mode`` for this call.
+
+    Returns:
+        The portal user from ``context.contextUser``.
+
+    Raises:
+        ValueError: The credential is empty, Nuwa rejects it, or the
+            response has no username.
+    """
     if not isinstance(ticket, str) or not ticket.strip():
         raise ValueError("ticket 不能为空。")
     token = ticket.strip()
